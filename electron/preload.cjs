@@ -16,4 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 导出 Excel
   exportExcel: (products) => ipcRenderer.invoke('export-excel', products),
+
+  // PDF 相关
+  selectPdfFiles: () => ipcRenderer.invoke('select-pdf-files'),
+  selectOutputFolder: () => ipcRenderer.invoke('select-output-folder'),
+  selectExcelFile: () => ipcRenderer.invoke('select-excel-file'),
+  buildSkuMap: (options) => ipcRenderer.invoke('build-sku-map', options),
+  processPdfFiles: (options) => ipcRenderer.invoke('process-pdf-files', options),
 });

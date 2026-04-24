@@ -2,9 +2,11 @@ import { useState, useCallback } from 'react';
 import UrlInput from './components/UrlInput';
 import ProductTable from './components/ProductTable';
 import ProgressBar from './components/ProgressBar';
+import PdfEditor from './components/PdfEditor';
 import './App.css';
 
 function App() {
+  const [page, setPage] = useState('scraper');
   const [products, setProducts] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [isScaping, setIsScraping] = useState(false);
@@ -81,58 +83,78 @@ function App() {
         <div className="header-content">
           <div className="logo">
             <span className="logo-icon">🛒</span>
-            <span className="logo-text">Amazon 商品抓取工具</span>
+            <span className="logo-text">Amazon 工具箱</span>
           </div>
+          <nav className="header-nav">
+            <button
+              className={`nav-btn ${page === 'scraper' ? 'nav-active' : ''}`}
+              onClick={() => setPage('scraper')}
+            >
+              📦 商品抓取
+            </button>
+            <button
+              className={`nav-btn ${page === 'pdf' ? 'nav-active' : ''}`}
+              onClick={() => setPage('pdf')}
+            >
+              📄 PDF 编辑
+            </button>
+          </nav>
         </div>
       </header>
 
       <main className="app-main">
-        <UrlInput onScrape={handleScrape} isScaping={isScaping} />
+        {page === 'scraper' && (
+          <>
+            <UrlInput onScrape={handleScrape} isScaping={isScaping} />
 
-        {progress && (
-          <ProgressBar
-            current={progress.current}
-            total={progress.total}
-            url={progress.url}
-            status={progress.status}
-          />
+            {progress && (
+              <ProgressBar
+                current={progress.current}
+                total={progress.total}
+                url={progress.url}
+                status={progress.status}
+              />
+            )}
+
+            {products.length > 0 && (
+              <div className="results-section">
+                <div className="results-toolbar">
+                  <div className="results-info">
+                    共抓取 <strong>{products.length}</strong> 条，成功{' '}
+                    <strong>{successCount}</strong> 条，已选{' '}
+                    <strong>{selected.size}</strong> 条
+                  </div>
+                  <div className="toolbar-actions">
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleSelectAll}
+                      disabled={successCount === 0}
+                    >
+                      {selected.size === successCount && successCount > 0
+                        ? '取消全选'
+                        : '全选'}
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleExport}
+                      disabled={selected.size === 0}
+                    >
+                      导出选中 ({selected.size}) 到 Excel
+                    </button>
+                  </div>
+                </div>
+
+                <ProductTable
+                  products={products}
+                  selected={selected}
+                  onToggleSelect={handleToggleSelect}
+                />
+              </div>
+            )}
+          </>
         )}
 
-        {products.length > 0 && (
-          <div className="results-section">
-            <div className="results-toolbar">
-              <div className="results-info">
-                共抓取 <strong>{products.length}</strong> 条，成功{' '}
-                <strong>{successCount}</strong> 条，已选{' '}
-                <strong>{selected.size}</strong> 条
-              </div>
-              <div className="toolbar-actions">
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleSelectAll}
-                  disabled={successCount === 0}
-                >
-                  {selected.size === successCount && successCount > 0
-                    ? '取消全选'
-                    : '全选'}
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleExport}
-                  disabled={selected.size === 0}
-                >
-                  导出选中 ({selected.size}) 到 Excel
-                </button>
-              </div>
-            </div>
-
-            <ProductTable
-              products={products}
-              selected={selected}
-              onToggleSelect={handleToggleSelect}
-            />
-          </div>
-        )}
+        {page === 'pdf' && <PdfEditor />}
       </main>
     </div>
   );

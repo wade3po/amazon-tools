@@ -24,7 +24,7 @@ async function createWindow() {
 
   if (isDev) {
     // 自动探测 Vite 端口，从 5173 开始往上找
-    const devPort = await findVitePort(5173, 5200);
+    const devPort = await findVitePort(5178, 5200);
     if (!devPort) {
       mainWindow.loadURL('data:text/html,<h2>未找到 Vite 开发服务器，请先运行 npx vite</h2>');
     } else {
@@ -189,6 +189,188 @@ ipcMain.handle('export-excel', async (event, products) => {
   }
 });
 
+// ========== IPC: 选择 PDF 文件 ==========
+ipcMain.handle('select-pdf-files', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择 PDF 文件',
+    filters: [{ name: 'PDF 文件', extensions: ['pdf'] }],
+    properties: ['openFile', 'multiSelections'],
+  });
+  return filePaths || [];
+});
+
+// ========== IPC: 选择输出文件夹 ==========
+ipcMain.handle('select-output-folder', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择输出文件夹',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return filePaths?.[0] || null;
+});
+
+// ========== IPC: 选择 Excel 文件并读取列名 ==========
+ipcMain.handle('select-excel-file', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择 SKU 对照表',
+    filters: [{ name: 'Excel 文件', extensions: ['xlsx', 'xls', 'csv'] }],
+    properties: ['openFile'],
+  });
+  if (!filePaths || filePaths.length === 0) return null;
+
+  const XLSX = require('xlsx');
+  const wb = XLSX.readFile(filePaths[0]);
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+  // 自动查找表头行：找包含 "SKU" 或 "FNSKU" 的行
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+    const row = (allRows[i] || []).map((c) => String(c).toUpperCase());
+    if (row.some((c) => c.includes('SKU') || c.includes('FNSKU'))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+
+  const columns = (allRows[headerRowIdx] || []).map((c) => String(c).trim()).filter(Boolean);
+  return { filePath: filePaths[0], columns, headerRowIdx };
+});
+
+// ========== IPC: 构建 FNSKU → SKU 映射 ==========
+ipcMain.handle('build-sku-map', async (event, options) => {
+  const XLSX = require('xlsx');
+  const { filePath, skuColumn, fnskuColumn } = options;
+
+  const wb = XLSX.readFile(filePath);
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+  // 找到表头行
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+    const row = (allRows[i] || []).map((c) => String(c).toUpperCase());
+    if (row.some((c) => c.includes('SKU') || c.includes('FNSKU'))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+
+  const headers = (allRows[headerRowIdx] || []).map((c) => String(c).trim());
+  const skuIdx = headers.indexOf(skuColumn);
+  const fnskuIdx = headers.indexOf(fnskuColumn);
+
+  const map = {};
+  const preview = [];
+
+  for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+    const row = allRows[i] || [];
+    const fnsku = String(row[fnskuIdx] || '').trim();
+    const sku = String(row[skuIdx] || '').trim();
+    if (fnsku && sku) {
+      map[fnsku] = sku;
+      if (preview.length < 5) {
+        preview.push({ fnsku, sku });
+      }
+    }
+  }
+
+  return { map, preview };
+});
+
+// ========== IPC: 批量处理 PDF ==========
+ipcMain.handle('process-pdf-files', async (event, options) => {
+  const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+  const files = options?.files || [];
+  const skuMap = options?.skuMap || {};
+  const rightText = String(options?.rightText || '');
+  const fontSize = Number(options?.fontSize) || 8;
+  const marginBottom = Number(options?.marginBottom) || 10;
+  const marginSide = Number(options?.marginSide) || 18;
+  const outputFolder = options?.outputFolder || '';
+
+  const results = [];
+
+  for (const filePath of files) {
+    try {
+      const fileBytes = fs.readFileSync(filePath);
+      const pdfDoc = await PDFDocument.load(fileBytes);
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+      // 从 PDF 提取文字，尝试匹配 FNSKU
+      let matchedFnsku = '';
+      let matchedSku = '';
+
+      if (Object.keys(skuMap).length > 0) {
+        const textContent = await extractPdfText(filePath);
+        console.log('[PDF] extracted text:', textContent);
+
+        for (const fnsku of Object.keys(skuMap)) {
+          if (textContent.includes(fnsku)) {
+            matchedFnsku = fnsku;
+            matchedSku = skuMap[fnsku];
+            break;
+          }
+        }
+      }
+
+      const pages = pdfDoc.getPages();
+      for (const page of pages) {
+        const { width } = page.getSize();
+        const y = marginBottom;
+
+        // 左侧：匹配到的 SKU
+        if (matchedSku.length > 0) {
+          page.drawText(matchedSku, {
+            x: marginSide,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+        }
+
+        // 右侧文字
+        if (rightText.length > 0) {
+          const rightWidth = font.widthOfTextAtSize(rightText, fontSize);
+          page.drawText(rightText, {
+            x: width - marginSide - rightWidth,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+        }
+      }
+
+      // 生成输出文件名
+      const fileName = path.basename(filePath);
+      let outputPath;
+      if (outputFolder) {
+        outputPath = path.join(outputFolder, fileName);
+      } else {
+        const ext = path.extname(filePath);
+        const base = filePath.slice(0, -ext.length);
+        outputPath = `${base}_modified${ext}`;
+      }
+
+      const modifiedBytes = await pdfDoc.save();
+      fs.writeFileSync(outputPath, modifiedBytes);
+
+      results.push({
+        file: filePath,
+        output: outputPath,
+        success: true,
+        matchedFnsku,
+        matchedSku,
+      });
+    } catch (err) {
+      results.push({ file: filePath, success: false, error: err.message });
+    }
+  }
+
+  return results;
+});
+
 // ========== 抓取逻辑 ==========
 async function scrapeAmazonProduct(browser, url) {
   const context = await browser.newContext({
@@ -338,4 +520,23 @@ async function findVitePort(start, end) {
     if (found) return port;
   }
   return null;
+}
+
+// ========== 从 PDF 提取文字 ==========
+async function extractPdfText(filePath) {
+  const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
+
+  const data = new Uint8Array(fs.readFileSync(filePath));
+  const doc = await pdfjsLib.getDocument({ data, useSystemFonts: true }).promise;
+
+  const texts = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    for (const item of content.items) {
+      if (item.str) texts.push(item.str);
+    }
+  }
+
+  return texts.join(' ');
 }

@@ -4,11 +4,14 @@
   "version": "1.0.0",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently \"vite --port 5173\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "concurrently \"vite --port 5178\" \"wait-on http://localhost:5178 && electron .\"",
+    "dev:electron": "electron .",
     "build": "vite build && electron-builder",
     "preview": "vite preview"
   },
   "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.4.168",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
