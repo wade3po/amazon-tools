@@ -2,16 +2,18 @@ import { useState } from 'react';
 
 function PdfEditor() {
   const [files, setFiles] = useState([]);
-  const [skuMap, setSkuMap] = useState(null); // { fnsku: sku } 映射
+  const [skuMap, setSkuMap] = useState(null); // { fnsku: { sku, name } } 映射
   const [excelFile, setExcelFile] = useState('');
   const [skuColumn, setSkuColumn] = useState('');
   const [fnskuColumn, setFnskuColumn] = useState('');
+  const [nameColumn, setNameColumn] = useState('');
   const [columns, setColumns] = useState([]);
   const [rightText, setRightText] = useState('Made in China');
   const [fontSize, setFontSize] = useState(8);
-  const [marginBottom, setMarginBottom] = useState(10);
+  const [marginBottom, setMarginBottom] = useState(8);
   const [marginSide, setMarginSide] = useState(18);
   const [processing, setProcessing] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const [results, setResults] = useState([]);
   const [matchPreview, setMatchPreview] = useState([]);
   const [outputFolder, setOutputFolder] = useState('');
@@ -31,14 +33,17 @@ function PdfEditor() {
     setSkuMap(null);
     setSkuColumn('');
     setFnskuColumn('');
+    setNameColumn('');
     setMatchPreview([]);
 
     // 自动猜测列名
     const cols = result.columns.map((c) => c.toLowerCase());
     const fnskuIdx = cols.findIndex((c) => c.includes('fnsku'));
     const skuIdx = cols.findIndex((c) => c.includes('sku') && !c.includes('fnsku'));
+    const nameIdx = cols.findIndex((c) => c.includes('品名') || c.includes('名称') || c.includes('product'));
     if (fnskuIdx >= 0) setFnskuColumn(result.columns[fnskuIdx]);
     if (skuIdx >= 0) setSkuColumn(result.columns[skuIdx]);
+    if (nameIdx >= 0) setNameColumn(result.columns[nameIdx]);
   };
 
   // 确认列映射，生成 SKU 映射表
@@ -48,6 +53,7 @@ function PdfEditor() {
       filePath: excelFile,
       skuColumn,
       fnskuColumn,
+      nameColumn,
     });
     if (result) {
       setSkuMap(result.map);
@@ -110,6 +116,34 @@ function PdfEditor() {
     }
   };
 
+  const handleSplit = async () => {
+    if (files.length === 0 || !skuMap) return;
+    if (!outputFolder) {
+      alert('拆分导出需要先选择输出文件夹');
+      return;
+    }
+
+    setSplitting(true);
+    setResults([]);
+
+    try {
+      const result = await window.electronAPI.splitPdfLabels({
+        files,
+        skuMap,
+        rightText: rightText.trim(),
+        fontSize,
+        marginBottom,
+        marginSide,
+        outputFolder,
+      });
+      setResults(result);
+    } catch (err) {
+      alert('拆分失败：' + err.message);
+    } finally {
+      setSplitting(false);
+    }
+  };
+
   const successCount = results.filter((r) => r.success).length;
   const failCount = results.filter((r) => !r.success).length;
   const mapSize = skuMap ? Object.keys(skuMap).length : 0;
@@ -158,6 +192,19 @@ function PdfEditor() {
                 ))}
               </select>
             </div>
+            <div className="mapping-row">
+              <label className="setting-label">品名列（用于拆分导出文件名，可选）</label>
+              <select
+                className="setting-input"
+                value={nameColumn}
+                onChange={(e) => setNameColumn(e.target.value)}
+              >
+                <option value="">不选择</option>
+                {columns.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
             <button
               className="btn btn-primary"
               onClick={handleBuildMap}
@@ -179,6 +226,7 @@ function PdfEditor() {
                 {matchPreview.map((item, i) => (
                   <div key={i} className="preview-map-item">
                     <code>{item.fnsku}</code> → <strong>{item.sku}</strong>
+                    {item.name && <span className="preview-name"> ({item.name})</span>}
                   </div>
                 ))}
               </div>
@@ -245,6 +293,7 @@ function PdfEditor() {
               <span className="preview-left">{skuMap ? '← 自动匹配 SKU' : '（导入 Excel 后自动匹配）'}</span>
               <span className="preview-right">{rightText || 'Made in China'}</span>
             </div>
+            <div className="preview-note">支持每页多个条形码标签，每个标签独立匹配</div>
           </div>
         </div>
 
@@ -312,7 +361,7 @@ function PdfEditor() {
         <button
           className="btn btn-primary btn-large"
           onClick={handleProcess}
-          disabled={processing || files.length === 0}
+          disabled={processing || splitting || files.length === 0}
         >
           {processing ? (
             <>
@@ -321,6 +370,21 @@ function PdfEditor() {
             </>
           ) : (
             `批量处理 (${files.length} 个文件)`
+          )}
+        </button>
+        <button
+          className="btn btn-secondary btn-large"
+          onClick={handleSplit}
+          disabled={processing || splitting || files.length === 0 || !skuMap}
+          title="将每个条形码标签拆分为独立 PDF，文件名为 SKU-品名"
+        >
+          {splitting ? (
+            <>
+              <span className="spinner" />
+              拆分中...
+            </>
+          ) : (
+            '拆分导出标签'
           )}
         </button>
         <span className="action-hint">
@@ -345,7 +409,14 @@ function PdfEditor() {
                 <span className="result-file">{(r.file || '').split(/[/\\]/).pop()}</span>
                 {r.success ? (
                   <span className="result-output" title={r.output}>
-                    {r.matchedSku && <code className="matched-sku">{r.matchedFnsku} → {r.matchedSku}</code>}
+                    {r.splitCount != null ? (
+                      <code className="matched-sku">拆分出 {r.splitCount} 个标签</code>
+                    ) : r.matchedCount > 0 ? (
+                      <code className="matched-sku">
+                        匹配 {r.matchedCount} 个标签
+                        {r.matchedCount <= 3 && `: ${r.matchedSku}`}
+                      </code>
+                    ) : null}
                     → {(r.output || '').split(/[/\\]/).pop()}
                   </span>
                 ) : (

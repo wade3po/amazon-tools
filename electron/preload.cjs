@@ -23,4 +23,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectExcelFile: () => ipcRenderer.invoke('select-excel-file'),
   buildSkuMap: (options) => ipcRenderer.invoke('build-sku-map', options),
   processPdfFiles: (options) => ipcRenderer.invoke('process-pdf-files', options),
+  splitPdfLabels: (options) => ipcRenderer.invoke('split-pdf-labels', options),
 });
