@@ -11,9 +11,12 @@
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^4.4.168",
+    "playwright": "^1.59.1",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -27,10 +30,8 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
-    "playwright": "^1.59.1",
     "vite": "^8.0.4",
-    "wait-on": "^9.0.5",
-    "xlsx": "^0.18.5"
+    "wait-on": "^9.0.5"
   },
   "build": {
     "appId": "com.amazon.scraper",
@@ -46,6 +47,9 @@
       "dist/**/*",
       "electron/**/*",
       "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/pdfjs-dist/**/*"
     ],
     "extraResources": [
       {
