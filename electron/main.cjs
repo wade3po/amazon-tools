@@ -598,6 +598,153 @@ ipcMain.handle('split-pdf-labels', async (event, options) => {
   return results;
 });
 
+// ========== IPC: 在 Excel 标签列左边写入 PDF 文件名 ==========
+ipcMain.handle('write-excel-links', async (event, options) => {
+  const XLSX = require('xlsx');
+  const AdmZip = require('adm-zip');
+  const {
+    excelFile,
+    fnskuColumn,
+    linkColumn,
+    outputFolder,
+    skuMap,
+  } = options;
+
+  if (!excelFile || !fnskuColumn || !linkColumn || !outputFolder) {
+    return { success: false, error: '参数不完整' };
+  }
+
+  try {
+    // 用 xlsx 读取数据确定要写哪些单元格
+    const wb = XLSX.readFile(excelFile);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+    let headerRowIdx = 0;
+    for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+      const row = (allRows[i] || []).map((c) => String(c).toUpperCase());
+      if (row.some((c) => c.includes('SKU') || c.includes('FNSKU'))) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+
+    const headers = (allRows[headerRowIdx] || []).map((c) => String(c).trim());
+    const fnskuIdx = headers.indexOf(fnskuColumn);
+    const linkColIdx = headers.indexOf(linkColumn);
+    if (fnskuIdx < 0) return { success: false, error: `找不到列 "${fnskuColumn}"` };
+    if (linkColIdx < 0) return { success: false, error: `找不到列 "${linkColumn}"` };
+
+    const fileNameColIdx = linkColIdx - 1;
+    if (fileNameColIdx < 0) return { success: false, error: '标签列左边没有列' };
+
+    // 扫描输出文件夹
+    const existingFiles = fs.readdirSync(outputFolder)
+      .filter((f) => f.toLowerCase().endsWith('.pdf'));
+
+    // 收集要写入的: { cellRef: 'AD5', value: 'BIJ-21-2-xxx.pdf' }
+    const writes = [];
+    for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+      const row = allRows[i] || [];
+      const existingVal = String(row[fileNameColIdx] || '').trim();
+      if (existingVal.length > 0) continue;
+
+      const fnsku = String(row[fnskuIdx] || '').trim();
+      if (!fnsku) continue;
+
+      const mapVal = skuMap[fnsku];
+      if (!mapVal) continue;
+      const sku = typeof mapVal === 'object' ? (mapVal.sku || '') : String(mapVal);
+      if (!sku) continue;
+
+      const matchedFile = existingFiles.find((f) => f.startsWith(sku));
+      if (!matchedFile) continue;
+
+      const cellRef = XLSX.utils.encode_cell({ r: i, c: fileNameColIdx });
+      writes.push({ cellRef, value: matchedFile, row: i });
+    }
+
+    if (writes.length === 0) {
+      return { success: true, linkCount: 0 };
+    }
+
+    // 直接操作 xlsx zip 包，只改目标单元格，保留所有格式
+    const zip = new AdmZip(excelFile);
+
+    // 读取 sharedStrings.xml
+    const ssEntry = zip.getEntries().find((e) => /xl\/sharedStrings\.xml$/i.test(e.entryName));
+    let ssXml = ssEntry ? ssEntry.getData().toString('utf-8') : '';
+
+    // 解析当前 count 和 uniqueCount
+    let ssCount = 0, ssUniqueCount = 0;
+    const countMatch = ssXml.match(/count="(\d+)"/);
+    const uniqueMatch = ssXml.match(/uniqueCount="(\d+)"/);
+    if (countMatch) ssCount = parseInt(countMatch[1]);
+    if (uniqueMatch) ssUniqueCount = parseInt(uniqueMatch[1]);
+
+    // 为每个新值分配 sharedString 索引
+    const stringIndexMap = {};
+    const newStrings = [];
+    for (const w of writes) {
+      if (!(w.value in stringIndexMap)) {
+        stringIndexMap[w.value] = ssUniqueCount + newStrings.length;
+        newStrings.push(w.value);
+      }
+    }
+
+    // 追加新字符串到 sharedStrings.xml
+    if (newStrings.length > 0 && ssEntry) {
+      const newEntries = newStrings.map((s) => `<si><t>${xmlEscape(s)}</t></si>`).join('');
+      ssXml = ssXml.replace(/count="(\d+)"/, `count="${ssCount + writes.length}"`);
+      ssXml = ssXml.replace(/uniqueCount="(\d+)"/, `uniqueCount="${ssUniqueCount + newStrings.length}"`);
+      ssXml = ssXml.replace('</sst>', newEntries + '</sst>');
+      zip.updateFile(ssEntry.entryName, Buffer.from(ssXml, 'utf-8'));
+    }
+
+    // 修改 sheet1.xml，在对应行插入单元格
+    const sheetEntry = zip.getEntries().find((e) => /xl\/worksheets\/sheet1\.xml$/i.test(e.entryName));
+    if (!sheetEntry) return { success: false, error: '找不到工作表' };
+
+    let sheetXml = sheetEntry.getData().toString('utf-8');
+
+    for (const w of writes) {
+      const ssIdx = stringIndexMap[w.value];
+      const cellTag = `<c r="${w.cellRef}" t="s"><v>${ssIdx}</v></c>`;
+      const rowNum = w.row + 1; // Excel 行号从 1 开始
+
+      // 找到该行
+      const rowRegex = new RegExp(`(<row[^>]*\\br="${rowNum}"[^>]*>)(.*?)(</row>)`, 's');
+      const rowMatch = sheetXml.match(rowRegex);
+
+      if (rowMatch) {
+        // 检查单元格是否已存在
+        const cellRegex = new RegExp(`<c\\s+r="${w.cellRef}"[^/]*(?:/>|>[\\s\\S]*?</c>)`);
+        if (cellRegex.test(rowMatch[2])) {
+          // 替换已有空单元格
+          sheetXml = sheetXml.replace(cellRegex, cellTag);
+        } else {
+          // 在行末插入新单元格
+          sheetXml = sheetXml.replace(rowRegex, `$1$2${cellTag}$3`);
+        }
+      }
+    }
+
+    zip.updateFile(sheetEntry.entryName, Buffer.from(sheetXml, 'utf-8'));
+    zip.writeZip(excelFile);
+
+    return { success: true, linkCount: writes.length };
+  } catch (err) {
+    if (err.code === 'EPERM' || err.code === 'EBUSY') {
+      return { success: false, error: '文件被占用，请先关闭再试' };
+    }
+    return { success: false, error: err.message };
+  }
+});
+
+function xmlEscape(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ========== 抓取逻辑 ==========
 async function scrapeAmazonProduct(browser, url) {
   const context = await browser.newContext({

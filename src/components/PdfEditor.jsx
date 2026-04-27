@@ -7,6 +7,7 @@ function PdfEditor() {
   const [skuColumn, setSkuColumn] = useState('');
   const [fnskuColumn, setFnskuColumn] = useState('');
   const [nameColumn, setNameColumn] = useState('');
+  const [linkColumn, setLinkColumn] = useState('');
   const [columns, setColumns] = useState([]);
   const [rightText, setRightText] = useState('Made in China');
   const [fontSize, setFontSize] = useState(8);
@@ -34,6 +35,7 @@ function PdfEditor() {
     setSkuColumn('');
     setFnskuColumn('');
     setNameColumn('');
+    setLinkColumn('');
     setMatchPreview([]);
 
     // 自动猜测列名
@@ -41,9 +43,11 @@ function PdfEditor() {
     const fnskuIdx = cols.findIndex((c) => c.includes('fnsku'));
     const skuIdx = cols.findIndex((c) => c.includes('sku') && !c.includes('fnsku'));
     const nameIdx = cols.findIndex((c) => c.includes('品名') || c.includes('名称') || c.includes('product'));
+    const linkIdx = cols.findIndex((c) => c.includes('标签') || c.includes('label'));
     if (fnskuIdx >= 0) setFnskuColumn(result.columns[fnskuIdx]);
     if (skuIdx >= 0) setSkuColumn(result.columns[skuIdx]);
     if (nameIdx >= 0) setNameColumn(result.columns[nameIdx]);
+    if (linkIdx >= 0) setLinkColumn(result.columns[linkIdx]);
   };
 
   // 确认列映射，生成 SKU 映射表
@@ -144,6 +148,25 @@ function PdfEditor() {
     }
   };
 
+  const handleWriteLinks = async () => {
+    if (!excelFile || !linkColumn || !skuMap || !outputFolder) {
+      alert('请先导入 Excel、确认映射、选择标签列和输出文件夹');
+      return;
+    }
+    try {
+      const r = await window.electronAPI.writeExcelLinks({
+        excelFile, fnskuColumn, linkColumn, outputFolder, skuMap,
+      });
+      if (r.success) {
+        alert(`已写入 ${r.linkCount} 个文件名`);
+      } else {
+        alert('写入失败：' + r.error);
+      }
+    } catch (err) {
+      alert('写入失败：' + err.message);
+    }
+  };
+
   const successCount = results.filter((r) => r.success).length;
   const failCount = results.filter((r) => !r.success).length;
   const mapSize = skuMap ? Object.keys(skuMap).length : 0;
@@ -198,6 +221,19 @@ function PdfEditor() {
                 className="setting-input"
                 value={nameColumn}
                 onChange={(e) => setNameColumn(e.target.value)}
+              >
+                <option value="">不选择</option>
+                {columns.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mapping-row">
+              <label className="setting-label">标签列（其左边列写入文件名，可选）</label>
+              <select
+                className="setting-input"
+                value={linkColumn}
+                onChange={(e) => setLinkColumn(e.target.value)}
               >
                 <option value="">不选择</option>
                 {columns.map((c) => (
@@ -386,6 +422,14 @@ function PdfEditor() {
           ) : (
             '拆分导出标签'
           )}
+        </button>
+        <button
+          className="btn btn-secondary btn-large"
+          onClick={handleWriteLinks}
+          disabled={processing || splitting || !skuMap || !linkColumn || !outputFolder}
+          title="在标签列左边的空白单元格写入匹配的 PDF 文件名"
+        >
+          📎 写入文件名
         </button>
         <span className="action-hint">
           自动识别 PDF 中的 FNSKU → 匹配 SKU 写入左侧，右侧写入 "{rightText}"
