@@ -10,23 +10,8 @@ import { seedDefaultAccount } from '../src/seed.js';
 
 const app = express();
 
-// CORS
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const allowed = [
-      'http://localhost:5173',
-      'http://localhost:5178',
-    ];
-    if (process.env.FRONTEND_URL) allowed.push(process.env.FRONTEND_URL);
-    if (allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Vercel serverless: allow all for now
-    }
-  },
-  credentials: true,
-}));
+// CORS: allow all origins in serverless (stateless)
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
 // Routes
@@ -35,23 +20,36 @@ app.use('/api/account', accountRoutes);
 app.use('/api/shop', shopRoutes);
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.use(errorHandler);
 
-// Connect to MongoDB once (reuse across invocations)
+// MongoDB connection reuse across warm invocations
 let isConnected = false;
+
 async function connectDB() {
   if (isConnected) return;
-  await mongoose.connect(process.env.MONGODB_URI);
-  isConnected = true;
-  await seedDefaultAccount();
+  try {
+    await mongoose.connect(process.env.MONGODB_URI, {
+      bufferCommands: false,
+    });
+    isConnected = true;
+    console.log('MongoDB connected');
+    await seedDefaultAccount();
+  } catch (err) {
+    console.error('MongoDB connection error:', err.message);
+    throw err;
+  }
 }
 
 // Vercel serverless handler
 export default async function handler(req, res) {
-  await connectDB();
+  try {
+    await connectDB();
+  } catch (err) {
+    return res.status(500).json({ message: 'Database connection failed', error: err.message });
+  }
   return app(req, res);
 }
