@@ -7,6 +7,7 @@ import AppLayout from './components/layout/AppLayout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import PdfPage from './pages/PdfPage';
+import ShopsPage from './pages/ShopsPage';
 import AccountsPage from './pages/AccountsPage';
 import './index.css';
 
@@ -20,6 +21,7 @@ createRoot(document.getElementById('root')).render(
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/pdf" element={<PdfPage />} />
+            <Route path="/shops" element={<ShopsPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
           </Route>
 

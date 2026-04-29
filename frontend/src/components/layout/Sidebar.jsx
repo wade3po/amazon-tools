@@ -3,6 +3,7 @@ import {
   CubeIcon,
   DocumentTextIcon,
   UserGroupIcon,
+  BuildingStorefrontIcon,
   ArrowRightStartOnRectangleIcon,
   Bars3Icon,
   XMarkIcon,
@@ -14,6 +15,7 @@ import ConfirmDialog from '../ui/ConfirmDialog';
 const navLinks = [
   { to: '/dashboard', label: '商品抓取', icon: CubeIcon },
   { to: '/pdf', label: 'PDF 编辑', icon: DocumentTextIcon },
+  { to: '/shops', label: '店铺管理', icon: BuildingStorefrontIcon },
   { to: '/accounts', label: '账号管理', icon: UserGroupIcon },
 ];
 

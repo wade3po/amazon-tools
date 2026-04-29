@@ -4,17 +4,35 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
+import shopRoutes from './routes/shop.js';
 import { errorHandler } from './middleware/error.js';
 import { seedDefaultAccount } from './seed.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
+// CORS: support web frontend + Electron desktop (origin is null for file://)
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL
-    : ['http://localhost:5173', 'http://localhost:5178'],
+  origin: (origin, callback) => {
+    // Electron desktop sends null origin, always allow
+    if (!origin) return callback(null, true);
+
+    const allowed = [
+      'http://localhost:5173',
+      'http://localhost:5178',
+    ];
+
+    // Add production frontend URL if configured
+    if (process.env.FRONTEND_URL) {
+      allowed.push(process.env.FRONTEND_URL);
+    }
+
+    if (allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -22,6 +40,7 @@ app.use(express.json({ limit: '10mb' }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/account', accountRoutes);
+app.use('/api/shop', shopRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

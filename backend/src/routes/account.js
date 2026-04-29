@@ -4,102 +4,92 @@ import Account from '../models/Account.js';
 
 const router = Router();
 
-// GET /api/account/me — 获取当前账号信息
+// GET /api/account/me
 router.get('/me', authenticate, async (req, res) => {
   res.json({ user: req.user.toSafeObject() });
 });
 
-// GET /api/account — 获取所有账号列表
+// GET /api/account?keyword=xxx&page=1&pageSize=10
 router.get('/', authenticate, async (req, res, next) => {
   try {
-    const accounts = await Account.find().sort({ createdAt: 1 });
-    res.json({ accounts: accounts.map((a) => a.toSafeObject()) });
-  } catch (err) {
-    next(err);
-  }
+    const { keyword = '', page = 1, pageSize = 10 } = req.query;
+    const p = Math.max(1, parseInt(page));
+    const size = Math.min(100, Math.max(1, parseInt(pageSize) || 10));
+
+    const filter = {};
+    if (keyword.trim()) {
+      filter.username = { $regex: keyword.trim(), $options: 'i' };
+    }
+
+    const [accounts, total] = await Promise.all([
+      Account.find(filter).sort({ createdAt: 1 }).skip((p - 1) * size).limit(size),
+      Account.countDocuments(filter),
+    ]);
+
+    res.json({
+      accounts: accounts.map((a) => a.toSafeObject()),
+      total,
+      page: p,
+      pageSize: size,
+      totalPages: Math.ceil(total / size),
+    });
+  } catch (err) { next(err); }
 });
 
-// POST /api/account — 新增账号
+// POST /api/account
 router.post('/', authenticate, async (req, res, next) => {
   try {
     const { username, password } = req.body;
-
     if (!username || !password) {
-      return res.status(400).json({ message: '请填写账号和密码' });
+      return res.status(400).json({ message: 'Username and password required' });
     }
-
     const account = await Account.create({ username, password });
     res.status(201).json({ account: account.toSafeObject() });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// PUT /api/account/:id — 修改账号（用户名 / 密码）
+// PUT /api/account/:id
 router.put('/:id', authenticate, async (req, res, next) => {
   try {
     const { username, password } = req.body;
     const account = await Account.findById(req.params.id).select('+password');
+    if (!account) return res.status(404).json({ message: 'Not found' });
 
-    if (!account) {
-      return res.status(404).json({ message: '账号不存在' });
-    }
-
-    if (username !== undefined && username.trim()) {
-      account.username = username.trim();
-    }
-    if (password !== undefined && password.trim()) {
-      account.password = password.trim();
-    }
-
+    if (username !== undefined && username.trim()) account.username = username.trim();
+    if (password !== undefined && password.trim()) account.password = password.trim();
     await account.save();
+
     res.json({ account: account.toSafeObject() });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// DELETE /api/account/:id — 删除账号
+// DELETE /api/account/:id
 router.delete('/:id', authenticate, async (req, res, next) => {
   try {
-    // 不能删除自己
     if (req.params.id === req.user._id.toString()) {
-      return res.status(400).json({ message: '不能删除当前登录的账号' });
+      return res.status(400).json({ message: 'Cannot delete current account' });
     }
-
     const account = await Account.findByIdAndDelete(req.params.id);
-    if (!account) {
-      return res.status(404).json({ message: '账号不存在' });
-    }
-
-    res.json({ message: '已删除' });
-  } catch (err) {
-    next(err);
-  }
+    if (!account) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: 'Deleted' });
+  } catch (err) { next(err); }
 });
 
-// PUT /api/account/me/password — 修改自己的密码
+// PUT /api/account/me/password
 router.put('/me/password', authenticate, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
-
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: '请填写当前密码和新密码' });
+      return res.status(400).json({ message: 'Both passwords required' });
     }
-
     const account = await Account.findById(req.user._id).select('+password');
     const isMatch = await account.comparePassword(currentPassword);
-    if (!isMatch) {
-      return res.status(401).json({ message: '当前密码错误' });
-    }
+    if (!isMatch) return res.status(401).json({ message: 'Wrong current password' });
 
     account.password = newPassword;
     await account.save();
-
-    res.json({ message: '密码修改成功' });
-  } catch (err) {
-    next(err);
-  }
+    res.json({ message: 'Password changed' });
+  } catch (err) { next(err); }
 });
 
 export default router;
