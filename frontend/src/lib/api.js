@@ -6,7 +6,6 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 请求拦截：自动附加 token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -15,18 +14,31 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截：统一处理 401
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      // 如果不在登录页，跳转到登录
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
+    // Extract a readable error message
+    let msg = '';
+    if (err.response) {
+      const data = err.response.data;
+      const status = err.response.status;
+      msg = data?.message || data?.error?.message || `${status}: ${err.response.statusText}`;
+
+      if (status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
       }
+    } else if (err.request) {
+      msg = 'Network error - server unreachable';
+    } else {
+      msg = err.message;
     }
+
+    // Attach readable message for easy access
+    err.msg = msg;
     return Promise.reject(err);
   }
 );

@@ -25,7 +25,7 @@ export default function LoginPage() {
       toast.success('登录成功');
       navigate('/dashboard');
     } catch (err) {
-      toast.error(err.response?.data?.message || '登录失败');
+      toast.error(err.msg || err.response?.data?.message || 'Login failed');
     } finally {
       setLoading(false);
     }
