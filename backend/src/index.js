@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
 import shopRoutes from './routes/shop.js';
+import productRoutes from './routes/product.js';
 import { errorHandler } from './middleware/error.js';
 import { seedDefaultAccount } from './seed.js';
 
@@ -35,12 +36,13 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/shop', shopRoutes);
+app.use('/api/product', productRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
