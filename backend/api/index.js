@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import authRoutes from '../src/routes/auth.js';
 import accountRoutes from '../src/routes/account.js';
 import shopRoutes from '../src/routes/shop.js';
+import productRoutes from '../src/routes/product.js';
 import { errorHandler } from '../src/middleware/error.js';
 import { seedDefaultAccount } from '../src/seed.js';
 
@@ -18,6 +19,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/shop', shopRoutes);
+app.use('/api/product', productRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
