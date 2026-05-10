@@ -8,7 +8,11 @@ export default function PdfEditor() {
   const [fnskuColumn, setFnskuColumn] = useState('');
   const [nameColumn, setNameColumn] = useState('');
   const [linkColumn, setLinkColumn] = useState('');
+  const [labelPageNameColumn, setLabelPageNameColumn] = useState('');
+  const [packageTypeColumn, setPackageTypeColumn] = useState('');
+  const [packageSizeColumn, setPackageSizeColumn] = useState('');
   const [columns, setColumns] = useState([]);
+  const [generatingChinesePdf, setGeneratingChinesePdf] = useState(false);
   const [rightText, setRightText] = useState('Made in China');
   const [fontSize, setFontSize] = useState(8);
   const [marginBottom, setMarginBottom] = useState(8);
@@ -36,22 +40,45 @@ export default function PdfEditor() {
     setFnskuColumn('');
     setNameColumn('');
     setLinkColumn('');
+    setLabelPageNameColumn('');
+    setPackageTypeColumn('');
+    setPackageSizeColumn('');
     setMatchPreview([]);
 
     const cols = result.columns.map((c) => c.toLowerCase());
     const fnskuIdx = cols.findIndex((c) => c.includes('fnsku'));
     const skuIdx = cols.findIndex((c) => c.includes('sku') && !c.includes('fnsku'));
     const nameIdx = cols.findIndex((c) => c.includes('品名') || c.includes('名称') || c.includes('product'));
-    const linkIdx = cols.findIndex((c) => c.includes('标签') || c.includes('label'));
+    // 标签列：精确匹配"标签"（不含"中文"），避免误匹配"中文标签"
+    const linkIdx = result.columns.findIndex((c) => c.trim() === '标签' || c.toLowerCase().includes('label'));
+    // 中文标签列
+    const labelPageNameIdx = result.columns.findIndex((c) => c.includes('中文标签'));
+    // 包装袋类型列
+    const packageTypeIdx = result.columns.findIndex((c) => c.includes('包装袋类型') || c.includes('包装类型'));
+    // 包装尺寸列：优先匹配"包装袋尺寸"，再匹配"包装后尺寸"
+    const packageSizeIdx = result.columns.findIndex((c) => c.includes('包装袋尺寸')) >= 0
+      ? result.columns.findIndex((c) => c.includes('包装袋尺寸'))
+      : result.columns.findIndex((c) => c.includes('包装后尺寸') || c.includes('包装尺寸'));
     if (fnskuIdx >= 0) setFnskuColumn(result.columns[fnskuIdx]);
     if (skuIdx >= 0) setSkuColumn(result.columns[skuIdx]);
     if (nameIdx >= 0) setNameColumn(result.columns[nameIdx]);
     if (linkIdx >= 0) setLinkColumn(result.columns[linkIdx]);
+    if (labelPageNameIdx >= 0) setLabelPageNameColumn(result.columns[labelPageNameIdx]);
+    if (packageTypeIdx >= 0) setPackageTypeColumn(result.columns[packageTypeIdx]);
+    if (packageSizeIdx >= 0) setPackageSizeColumn(result.columns[packageSizeIdx]);
   };
 
   const handleBuildMap = async () => {
     if (!excelFile || !skuColumn || !fnskuColumn) return;
-    const result = await window.electronAPI.buildSkuMap({ filePath: excelFile, skuColumn, fnskuColumn, nameColumn });
+    const result = await window.electronAPI.buildSkuMap({
+      filePath: excelFile,
+      skuColumn,
+      fnskuColumn,
+      nameColumn,
+      labelPageNameColumn,
+      packageTypeColumn,
+      packageSizeColumn,
+    });
     if (result) {
       setSkuMap(result.map);
       setMatchPreview(result.preview);
@@ -95,10 +122,29 @@ export default function PdfEditor() {
   const handleWriteLinks = async () => {
     if (!excelFile || !linkColumn || !skuMap || !outputFolder) { alert('请先导入 Excel、确认映射、选择标签列和输出文件夹'); return; }
     try {
-      const r = await window.electronAPI.writeExcelLinks({ excelFile, fnskuColumn, linkColumn, outputFolder, skuMap });
+      const r = await window.electronAPI.writeExcelLinks({
+        excelFile,
+        fnskuColumn,
+        linkColumn,
+        labelPageNameColumn,
+        outputFolder,
+        skuMap,
+      });
       if (r.success) alert(`已写入 ${r.linkCount} 个文件名`);
       else alert('写入失败：' + r.error);
     } catch (err) { alert('写入失败：' + err.message); }
+  };
+
+  const handleGenerateChinesePdf = async () => {
+    if (!skuMap || !outputFolder) { alert('请先确认映射并选择输出文件夹'); return; }
+    if (files.length === 0) { alert('请先选择 PDF 文件'); return; }
+    setGeneratingChinesePdf(true);
+    try {
+      const r = await window.electronAPI.generateChineseLabelPdf({ skuMap, outputFolder, files });
+      if (r.success) alert(`已生成 ${r.count} 个中文标签 PDF${r.skipped > 0 ? `，跳过已存在 ${r.skipped} 个` : ''}`);
+      else alert('生成失败：' + r.error);
+    } catch (err) { alert('生成失败：' + err.message); }
+    finally { setGeneratingChinesePdf(false); }
   };
 
   const successCount = results.filter((r) => r.success).length;
@@ -136,6 +182,9 @@ export default function PdfEditor() {
               { label: 'SKU 编码列', value: skuColumn, set: setSkuColumn, required: true },
               { label: '品名列（可选）', value: nameColumn, set: setNameColumn },
               { label: '标签列（可选）', value: linkColumn, set: setLinkColumn },
+              { label: '中文标签列（可选）', value: labelPageNameColumn, set: setLabelPageNameColumn },
+              { label: '包装袋类型列（可选）', value: packageTypeColumn, set: setPackageTypeColumn },
+              { label: '包装尺寸列（可选）', value: packageSizeColumn, set: setPackageSizeColumn },
             ].map(({ label, value, set, required }) => (
               <div key={label}>
                 <label className="mb-1 block text-xs font-medium text-apple-gray-600">{label}</label>
@@ -263,6 +312,10 @@ export default function PdfEditor() {
           <button onClick={handleWriteLinks} disabled={processing || splitting || !skuMap || !linkColumn || !outputFolder}
             className="rounded-xl border border-apple-gray-300 bg-white px-5 py-2 text-sm font-medium text-apple-gray-700 transition-all hover:bg-apple-gray-50 active:scale-[0.97] disabled:opacity-40">
             📎 写入文件名
+          </button>
+          <button onClick={handleGenerateChinesePdf} disabled={processing || splitting || generatingChinesePdf || !skuMap || files.length === 0 || !outputFolder}
+            className="rounded-xl border border-apple-gray-300 bg-white px-5 py-2 text-sm font-medium text-apple-gray-700 transition-all hover:bg-apple-gray-50 active:scale-[0.97] disabled:opacity-40">
+            {generatingChinesePdf ? <span className="flex items-center gap-1.5"><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-apple-gray-400/30 border-t-apple-gray-600" />生成中...</span> : '🇨🇳 中文标签 PDF'}
           </button>
         </div>
         <p className="mt-2 text-xs text-apple-gray-400">

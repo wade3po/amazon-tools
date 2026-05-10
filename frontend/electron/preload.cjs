@@ -25,4 +25,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   processPdfFiles: (options) => ipcRenderer.invoke('process-pdf-files', options),
   splitPdfLabels: (options) => ipcRenderer.invoke('split-pdf-labels', options),
   writeExcelLinks: (options) => ipcRenderer.invoke('write-excel-links', options),
+  generateChineseLabelPdf: (options) => ipcRenderer.invoke('generate-chinese-label-pdf', options),
 });

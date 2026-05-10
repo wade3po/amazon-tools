@@ -246,7 +246,10 @@ ipcMain.handle('select-excel-file', async () => {
 // ========== IPC: 构建 FNSKU → SKU 映射 ==========
 ipcMain.handle('build-sku-map', async (event, options) => {
   const XLSX = require('xlsx');
-  const { filePath, skuColumn, fnskuColumn, nameColumn } = options;
+  const {
+    filePath, skuColumn, fnskuColumn, nameColumn,
+    labelPageNameColumn, packageTypeColumn, packageSizeColumn,
+  } = options;
 
   const wb = XLSX.readFile(filePath);
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -263,20 +266,26 @@ ipcMain.handle('build-sku-map', async (event, options) => {
   }
 
   const headers = (allRows[headerRowIdx] || []).map((c) => String(c).trim());
-  const skuIdx = headers.indexOf(skuColumn);
-  const fnskuIdx = headers.indexOf(fnskuColumn);
-  const nameIdx = nameColumn ? headers.indexOf(nameColumn) : -1;
+  const skuIdx              = headers.indexOf(skuColumn);
+  const fnskuIdx            = headers.indexOf(fnskuColumn);
+  const nameIdx             = nameColumn          ? headers.indexOf(nameColumn)          : -1;
+  const labelPageNameIdx    = labelPageNameColumn  ? headers.indexOf(labelPageNameColumn)  : -1;
+  const packageTypeIdx      = packageTypeColumn    ? headers.indexOf(packageTypeColumn)    : -1;
+  const packageSizeIdx      = packageSizeColumn    ? headers.indexOf(packageSizeColumn)    : -1;
 
   const map = {};
   const preview = [];
 
   for (let i = headerRowIdx + 1; i < allRows.length; i++) {
     const row = allRows[i] || [];
-    const fnsku = String(row[fnskuIdx] || '').trim();
-    const sku = String(row[skuIdx] || '').trim();
-    const name = nameIdx >= 0 ? String(row[nameIdx] || '').trim() : '';
+    const fnsku         = String(row[fnskuIdx]         || '').trim();
+    const sku           = String(row[skuIdx]           || '').trim();
+    const name          = nameIdx          >= 0 ? String(row[nameIdx]          || '').trim() : '';
+    const labelPageName = labelPageNameIdx >= 0 ? String(row[labelPageNameIdx] || '').trim() : '';
+    const packageType   = packageTypeIdx   >= 0 ? String(row[packageTypeIdx]   || '').trim() : '';
+    const packageSize   = packageSizeIdx   >= 0 ? String(row[packageSizeIdx]   || '').trim() : '';
     if (fnsku && sku) {
-      map[fnsku] = { sku, name };
+      map[fnsku] = { sku, name, labelPageName, packageType, packageSize };
       if (preview.length < 5) {
         preview.push({ fnsku, sku, name });
       }
@@ -606,6 +615,7 @@ ipcMain.handle('write-excel-links', async (event, options) => {
     excelFile,
     fnskuColumn,
     linkColumn,
+    labelPageNameColumn,
     outputFolder,
     skuMap,
   } = options;
@@ -630,38 +640,64 @@ ipcMain.handle('write-excel-links', async (event, options) => {
     }
 
     const headers = (allRows[headerRowIdx] || []).map((c) => String(c).trim());
-    const fnskuIdx = headers.indexOf(fnskuColumn);
-    const linkColIdx = headers.indexOf(linkColumn);
+    const fnskuIdx    = headers.indexOf(fnskuColumn);
+    const linkColIdx  = headers.indexOf(linkColumn);
+    // 中文标签列索引（可选）
+    const labelPageNameColIdx = labelPageNameColumn ? headers.indexOf(labelPageNameColumn) : -1;
+
     if (fnskuIdx < 0) return { success: false, error: `找不到列 "${fnskuColumn}"` };
     if (linkColIdx < 0) return { success: false, error: `找不到列 "${linkColumn}"` };
 
+    // "标签"列左边一列 → 写普通标签文件名
     const fileNameColIdx = linkColIdx - 1;
     if (fileNameColIdx < 0) return { success: false, error: '标签列左边没有列' };
+
+    // "中文标签"列左边一列 → 写中文标签文件名（可选）
+    const chineseFileNameColIdx = labelPageNameColIdx >= 0 ? labelPageNameColIdx - 1 : -1;
 
     // 扫描输出文件夹
     const existingFiles = fs.readdirSync(outputFolder)
       .filter((f) => f.toLowerCase().endsWith('.pdf'));
 
-    // 收集要写入的: { cellRef: 'AD5', value: 'BIJ-21-2-xxx.pdf' }
+    // 收集要写入的: { cellRef, value }
     const writes = [];
     for (let i = headerRowIdx + 1; i < allRows.length; i++) {
       const row = allRows[i] || [];
-      const existingVal = String(row[fileNameColIdx] || '').trim();
-      if (existingVal.length > 0) continue;
-
       const fnsku = String(row[fnskuIdx] || '').trim();
       if (!fnsku) continue;
 
       const mapVal = skuMap[fnsku];
       if (!mapVal) continue;
-      const sku = typeof mapVal === 'object' ? (mapVal.sku || '') : String(mapVal);
+      const sku  = typeof mapVal === 'object' ? (mapVal.sku  || '') : String(mapVal);
+      const name = typeof mapVal === 'object' ? (mapVal.name || '') : '';
       if (!sku) continue;
 
-      const matchedFile = existingFiles.find((f) => f.startsWith(sku));
-      if (!matchedFile) continue;
+      // ── 普通标签列（标签列左边）──
+      const existingVal = String(row[fileNameColIdx] || '').trim();
+      if (!existingVal) {
+        const matchedFile = existingFiles.find((f) => f.startsWith(sku) && !f.includes('-中文标签'));
+        if (matchedFile) {
+          writes.push({ cellRef: XLSX.utils.encode_cell({ r: i, c: fileNameColIdx }), value: matchedFile });
+        }
+      }
 
-      const cellRef = XLSX.utils.encode_cell({ r: i, c: fileNameColIdx });
-      writes.push({ cellRef, value: matchedFile, row: i });
+      // ── 中文标签列（中文标签列左边）──
+      if (chineseFileNameColIdx >= 0) {
+        const existingChineseVal = String(row[chineseFileNameColIdx] || '').trim();
+        if (!existingChineseVal) {
+          // 中文标签 PDF 文件名格式：SKU编码-品名-中文标签.pdf（"中文标签"是固定后缀）
+          const cParts = [sku];
+          if (name) cParts.push(name);
+          cParts.push('中文标签');
+          let chineseFileBase = cParts.join('-').replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+          if (chineseFileBase.length > 100) chineseFileBase = chineseFileBase.substring(0, 100).trim();
+          const fullChineseFileName = chineseFileBase + '.pdf';
+          const matchedChinese = existingFiles.find((f) => f === fullChineseFileName);
+          if (matchedChinese) {
+            writes.push({ cellRef: XLSX.utils.encode_cell({ r: i, c: chineseFileNameColIdx }), value: matchedChinese });
+          }
+        }
+      }
     }
 
     if (writes.length === 0) {
@@ -710,7 +746,7 @@ ipcMain.handle('write-excel-links', async (event, options) => {
     for (const w of writes) {
       const ssIdx = stringIndexMap[w.value];
       const cellTag = `<c r="${w.cellRef}" t="s"><v>${ssIdx}</v></c>`;
-      const rowNum = w.row + 1; // Excel 行号从 1 开始
+      const rowNum = parseInt(w.cellRef.replace(/[A-Z]+/, ''), 10);
 
       // 找到该行
       const rowRegex = new RegExp(`(<row[^>]*\\br="${rowNum}"[^>]*>)(.*?)(</row>)`, 's');
@@ -720,10 +756,8 @@ ipcMain.handle('write-excel-links', async (event, options) => {
         // 检查单元格是否已存在
         const cellRegex = new RegExp(`<c\\s+r="${w.cellRef}"[^/]*(?:/>|>[\\s\\S]*?</c>)`);
         if (cellRegex.test(rowMatch[2])) {
-          // 替换已有空单元格
           sheetXml = sheetXml.replace(cellRegex, cellTag);
         } else {
-          // 在行末插入新单元格
           sheetXml = sheetXml.replace(rowRegex, `$1$2${cellTag}$3`);
         }
       }
@@ -741,8 +775,170 @@ ipcMain.handle('write-excel-links', async (event, options) => {
   }
 });
 
+// ========== IPC: 生成中文标签 PDF ==========
+// 策略：先把所有页写进一个大 PDF（字体只 embed 一次），再逐页拆分保存，速度极快
+ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
+  const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+  const fontkit = require('@pdf-lib/fontkit');
+  const { skuMap, outputFolder, files } = options;
+
+  if (!outputFolder) return { success: false, error: '请先选择输出文件夹' };
+  if (!skuMap || Object.keys(skuMap).length === 0) return { success: false, error: '请先确认映射' };
+  if (!files || files.length === 0) return { success: false, error: '请先选择 PDF 文件' };
+
+  // ── 第一步：扫描所有 PDF，收集实际出现的 FNSKU（去重）──
+  const fnskuList = Object.keys(skuMap);
+  const foundFnskus = new Set();
+  for (const filePath of files) {
+    try {
+      const pageLabelInfos = await extractPageLabels(filePath, fnskuList);
+      for (const pageLabels of pageLabelInfos) {
+        for (const label of pageLabels) {
+          foundFnskus.add(label.fnsku);
+        }
+      }
+      // 兼容单条码 PDF：逐页提取文本匹配
+      const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
+      const data = new Uint8Array(fs.readFileSync(filePath));
+      const doc = await pdfjsLib.getDocument({ data, useSystemFonts: true }).promise;
+      for (let p = 1; p <= doc.numPages; p++) {
+        const text = await extractSinglePageText(filePath, p);
+        for (const fnsku of fnskuList) {
+          if (text.includes(fnsku)) foundFnskus.add(fnsku);
+        }
+      }
+    } catch (e) { /* 跳过读取失败的文件 */ }
+  }
+
+  // 只使用 .ttf 格式，避免 .ttc 兼容问题
+  const chineseFontPaths = [
+    'C:\\Windows\\Fonts\\simhei.ttf',
+    'C:\\Windows\\Fonts\\simkai.ttf',
+    'C:\\Windows\\Fonts\\simfang.ttf',
+    'C:\\Windows\\Fonts\\SIMHEI.TTF',
+    'C:\\Windows\\Fonts\\SIMKAI.TTF',
+  ];
+  let chineseFontBytes = null;
+  for (const fp of chineseFontPaths) {
+    if (fs.existsSync(fp)) { chineseFontBytes = fs.readFileSync(fp); break; }
+  }
+
+  // ── 第二步：只处理 PDF 里出现的 FNSKU，去重，跳过已存在的文件 ──
+  const seen = new Set();
+  const entries = [];   // 需要新生成的
+  let skipped = 0;
+
+  for (const fnsku of foundFnskus) {
+    const mapVal = skuMap[fnsku];
+    if (!mapVal) continue;
+    const sku         = typeof mapVal === 'object' ? (mapVal.sku         || '') : String(mapVal);
+    if (!sku) continue;
+    const name        = typeof mapVal === 'object' ? (mapVal.name        || '') : '';
+    const packageType = typeof mapVal === 'object' ? (mapVal.packageType || '') : '';
+    const packageSize = typeof mapVal === 'object' ? (mapVal.packageSize || '') : '';
+
+    const parts = [sku];
+    if (name) parts.push(name);
+    parts.push('中文标签');
+    let fileBase = parts.join('-').replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+    if (fileBase.length > 100) fileBase = fileBase.substring(0, 100).trim();
+
+    if (seen.has(fileBase)) continue;
+    seen.add(fileBase);
+
+    const outputPath = path.join(outputFolder, fileBase + '.pdf');
+    if (fs.existsSync(outputPath)) { skipped++; continue; } // 已存在则跳过
+
+    entries.push({ fnsku, name, packageType, packageSize, fileBase });
+  }
+
+  if (entries.length === 0) return { success: true, count: 0, skipped, errors: [] };
+
+  const errors = [];
+  // 50mm × 30mm = 141.7pt × 85.0pt
+  const pageWidth = 141.7, pageHeight = 85.0;
+
+  try {
+    // ── 第三步：一次性建大 PDF，字体只 embed 一次 ──
+    const masterDoc = await PDFDocument.create();
+    let font;
+    if (chineseFontBytes) {
+      masterDoc.registerFontkit(fontkit);
+      font = await masterDoc.embedFont(chineseFontBytes, { subset: true });
+    } else {
+      font = await masterDoc.embedFont(StandardFonts.Helvetica);
+    }
+
+    for (const entry of entries) {
+      const page = masterDoc.addPage([pageWidth, pageHeight]);
+      const lines = [
+        { text: '品名：'       + (entry.name        || '—'), size: 9 },
+        { text: 'FNSKU：'      + entry.fnsku,                size: 8 },
+        { text: '包装袋类型：' + (entry.packageType || '—'), size: 8 },
+        { text: '包装袋尺寸：' + (entry.packageSize || '—'), size: 8 },
+      ];
+
+      const marginX = 6;
+      const maxW = pageWidth - marginX * 2;
+      let curY = pageHeight - 10;
+
+      for (const line of lines) {
+        const wrappedLines = wrapText(line.text, font, line.size, maxW);
+        for (const wl of wrappedLines) {
+          if (curY < 4) break;
+          page.drawText(wl, { x: marginX, y: curY, size: line.size, font, color: rgb(0, 0, 0) });
+          curY -= line.size + 4;
+        }
+        curY -= 2;
+      }
+    }
+
+    // ── 第四步：保存大 PDF 到内存 ──
+    const masterBytes = await masterDoc.save();
+
+    // ── 第五步：逐页拆分写文件 ──
+    for (let i = 0; i < entries.length; i++) {
+      try {
+        const srcDoc = await PDFDocument.load(masterBytes);
+        const newDoc = await PDFDocument.create();
+        const [copied] = await newDoc.copyPages(srcDoc, [i]);
+        newDoc.addPage(copied);
+        const bytes = await newDoc.save();
+        fs.writeFileSync(path.join(outputFolder, entries[i].fileBase + '.pdf'), bytes);
+      } catch (err) {
+        errors.push(`${entries[i].fnsku}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+
+  const count = entries.length - errors.length;
+  if (count === 0 && errors.length > 0) return { success: false, error: errors.slice(0, 3).join('\n') };
+  return { success: true, count, skipped, errors };
+});
+
 function xmlEscape(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 手动换行：将文本按最大宽度拆成多行
+function wrapText(text, font, fontSize, maxWidth) {
+  const lines = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    // 二分查找最多能放几个字符
+    let lo = 1, hi = remaining.length, fit = 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const w = font.widthOfTextAtSize(remaining.slice(0, mid), fontSize);
+      if (w <= maxWidth) { fit = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    lines.push(remaining.slice(0, fit));
+    remaining = remaining.slice(fit);
+  }
+  return lines.length > 0 ? lines : [''];
 }
 
 // ========== 抓取逻辑 ==========
