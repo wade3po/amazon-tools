@@ -348,28 +348,7 @@ ipcMain.handle('process-pdf-files', async (event, options) => {
             // 新文字紧贴在最底部文本下方，间距由 marginBottom 控制
             const y = label.lowestTextY - marginBottom - 2;
 
-            // 左侧：SKU，从标签左边界开始 +4pt
-            if (sku.length > 0) {
-              page.drawText(sku, {
-                x: label.labelLeft + 4,
-                y,
-                size: fontSize,
-                font,
-                color: rgb(0.2, 0.2, 0.2),
-              });
-            }
-
-            // 右侧文字，对齐到标签右边界
-            if (rightText.length > 0) {
-              const rightWidth = font.widthOfTextAtSize(rightText, fontSize);
-              page.drawText(rightText, {
-                x: label.labelRight - rightWidth,
-                y,
-                size: fontSize,
-                font,
-                color: rgb(0.2, 0.2, 0.2),
-              });
-            }
+            drawLabelTexts({ page, font, fontSize, sku, rightText, y, labelLeft: label.labelLeft, labelRight: label.labelRight });
           }
         } else {
           // 回退：没有检测到标签区域，使用整页模式（兼容旧的单条码 PDF）
@@ -494,26 +473,7 @@ ipcMain.handle('split-pdf-labels', async (event, options) => {
             const sku = getSkuFromMap(label.fnsku);
             const y = label.lowestTextY - marginBottom - 2;
 
-            if (sku.length > 0) {
-              page.drawText(sku, {
-                x: label.labelLeft + 4,
-                y,
-                size: fontSize,
-                font,
-                color: rgb(0.2, 0.2, 0.2),
-              });
-            }
-
-            if (rightText.length > 0) {
-              const rightWidth = font.widthOfTextAtSize(rightText, fontSize);
-              page.drawText(rightText, {
-                x: label.labelRight - rightWidth,
-                y,
-                size: fontSize,
-                font,
-                color: rgb(0.2, 0.2, 0.2),
-              });
-            }
+            drawLabelTexts({ page, font, fontSize, sku, rightText, y, labelLeft: label.labelLeft, labelRight: label.labelRight });
           }
         } else {
           const y = marginBottom;
@@ -920,6 +880,30 @@ ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
 
 function xmlEscape(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 在标签底部绘制 SKU（左）和 rightText（右）
+// SKU 和 rightText 放不下时，各自靠右分两行显示，字号比传入的小 1pt
+function drawLabelTexts({ page, font, fontSize, sku, rightText, y, labelLeft, labelRight }) {
+  const { rgb } = require('pdf-lib');
+  const smallSize = Math.max(fontSize - 1, 5);
+  const gap = 6;
+
+  if (!sku && !rightText) return;
+
+  const skuWidth   = sku       ? font.widthOfTextAtSize(sku,       smallSize) : 0;
+  const rightWidth = rightText ? font.widthOfTextAtSize(rightText, smallSize) : 0;
+  const labelWidth = labelRight - labelLeft;
+  const needWrap   = sku && rightText && (skuWidth + gap + rightWidth > labelWidth);
+
+  if (needWrap) {
+    const lineH = smallSize + 2;
+    if (sku)       page.drawText(sku,       { x: labelRight - skuWidth,   y: y + lineH, size: smallSize, font, color: rgb(0.2, 0.2, 0.2) });
+    if (rightText) page.drawText(rightText, { x: labelRight - rightWidth, y,            size: smallSize, font, color: rgb(0.2, 0.2, 0.2) });
+  } else {
+    if (sku)       page.drawText(sku,       { x: labelLeft + 4,           y,            size: smallSize, font, color: rgb(0.2, 0.2, 0.2) });
+    if (rightText) page.drawText(rightText, { x: labelRight - rightWidth, y,            size: smallSize, font, color: rgb(0.2, 0.2, 0.2) });
+  }
 }
 
 // 手动换行：将文本按最大宽度拆成多行
