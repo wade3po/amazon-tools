@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import Product from '../models/Product.js';
+import PriceLog from '../models/PriceLog.js';
 
 const router = Router();
 
@@ -90,11 +91,34 @@ router.post('/batch', authenticate, async (req, res, next) => {
 // PUT /api/product/:id
 router.put('/:id', authenticate, async (req, res, next) => {
   try {
+    // 先读取旧数据，检测价格变化
+    const oldProduct = await Product.findById(req.params.id);
+    if (!oldProduct) return res.status(404).json({ message: '未找到' });
+
+    const oldPrice = oldProduct.price;
+    const newPrice = req.body.price !== undefined ? Number(req.body.price) : undefined;
+
     const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
     });
-    if (!product) return res.status(404).json({ message: '未找到' });
+
+    // 价格发生变化时记录日志
+    if (newPrice !== undefined && oldPrice !== newPrice && !isNaN(newPrice)) {
+      const change = Number((newPrice - (oldPrice || 0)).toFixed(2));
+      const direction = change > 0 ? '加价' : '降价';
+      const note = `产品${direction}${Math.abs(change)}，目前价格${newPrice}`;
+      await PriceLog.create({
+        productId: product._id,
+        shopId: product.shopId,
+        field: 'price',
+        oldValue: oldPrice || 0,
+        newValue: newPrice,
+        change,
+        note,
+      });
+    }
+
     res.json({ product });
   } catch (err) {
     if (err.code === 11000) {
@@ -102,6 +126,16 @@ router.put('/:id', authenticate, async (req, res, next) => {
     }
     next(err);
   }
+});
+
+// GET /api/product/:id/price-logs — 获取价格变动记录
+router.get('/:id/price-logs', authenticate, async (req, res, next) => {
+  try {
+    const logs = await PriceLog.find({ productId: req.params.id })
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json({ logs });
+  } catch (err) { next(err); }
 });
 
 // DELETE /api/product/:id

@@ -6,6 +6,7 @@ import {
   BuildingStorefrontIcon,
   TableCellsIcon,
   Cog6ToothIcon,
+  MegaphoneIcon,
 } from '@heroicons/react/24/outline';
 
 const moduleLinks = {
@@ -13,6 +14,7 @@ const moduleLinks = {
     { to: '/dashboard', label: '商品抓取', icon: CubeIcon },
     { to: '/pdf', label: 'PDF 编辑', icon: DocumentTextIcon },
     { to: '/products', label: '产品管理', icon: TableCellsIcon },
+    { to: '/ad', label: '广告管理', icon: MegaphoneIcon },
   ],
   admin: [
     { to: '/shops', label: '店铺管理', icon: BuildingStorefrontIcon },

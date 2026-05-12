@@ -624,6 +624,9 @@ export default function ProductsPage() {
   const [showLabelFolder, setShowLabelFolder] = useState(false);
   const [labelFolderValue, setLabelFolderValue] = useState('');
   const [savingFolder, setSavingFolder] = useState(false);
+  const [showPriceLog, setShowPriceLog] = useState(false);
+  const [priceLogProduct, setPriceLogProduct] = useState(null);
+  const [priceLogs, setPriceLogs] = useState([]);
   const [exchangeRate, setExchangeRate] = useState(7.2);
   const [managementRate, setManagementRate] = useState(0);
   const [savingRate, setSavingRate] = useState(false);
@@ -668,6 +671,15 @@ export default function ProductsPage() {
       window.dispatchEvent(new Event('shopChanged'));
     } catch (err) { toast.error(err.msg || '保存失败'); }
     finally { setSavingFolder(false); }
+  };
+
+  const openPriceLog = async (product) => {
+    setPriceLogProduct(product);
+    setShowPriceLog(true);
+    try {
+      const res = await api.get(`/product/${product._id}/price-logs`);
+      setPriceLogs(res.data.logs || []);
+    } catch { setPriceLogs([]); }
   };
 
   // 行内修改销售价后保存
@@ -907,16 +919,25 @@ export default function ProductsPage() {
                                       className="w-full rounded border border-apple-blue bg-white px-1 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-apple-blue"
                                     />
                                   ) : (
-                                    <span
-                                      className="cursor-pointer hover:underline font-medium"
-                                      style={cellStyle}
-                                      title="双击修改售价"
-                                      onDoubleClick={() => {
-                                        setEditingPriceId(p._id);
-                                        setEditingPriceValue(p.price ?? '');
-                                      }}
-                                    >
-                                      {cellValue != null ? `$${Number(cellValue).toFixed(2)}` : <span className="text-apple-gray-300">—</span>}
+                                    <span className="flex items-center justify-end gap-1">
+                                      <button
+                                        onClick={() => openPriceLog(p)}
+                                        className="text-[10px] text-apple-gray-300 hover:text-apple-blue opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="价格变动记录"
+                                      >
+                                        📋
+                                      </button>
+                                      <span
+                                        className="cursor-pointer hover:underline font-medium"
+                                        style={cellStyle}
+                                        title="双击修改售价"
+                                        onDoubleClick={() => {
+                                          setEditingPriceId(p._id);
+                                          setEditingPriceValue(p.price ?? '');
+                                        }}
+                                      >
+                                        {cellValue != null ? `$${Number(cellValue).toFixed(2)}` : <span className="text-apple-gray-300">—</span>}
+                                      </span>
                                     </span>
                                   )
                                 ) : col.key === 'labelPageName' ? (
@@ -1040,6 +1061,37 @@ export default function ProductsPage() {
               <button onClick={handleSaveLabelFolder} disabled={savingFolder} className="rounded-lg bg-apple-blue px-4 py-2 text-sm font-medium text-white hover:bg-apple-blue-hover disabled:opacity-50">
                 {savingFolder ? '保存中...' : '保存'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 价格变动记录弹窗 */}
+      {showPriceLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-1 text-base font-semibold text-apple-gray-900">价格变动记录</h2>
+            <p className="mb-4 text-xs text-apple-gray-500">{priceLogProduct?.sku} - {priceLogProduct?.name}</p>
+            {priceLogs.length === 0 ? (
+              <p className="py-8 text-center text-sm text-apple-gray-400">暂无变动记录</p>
+            ) : (
+              <div className="max-h-80 overflow-y-auto divide-y divide-apple-gray-100">
+                {priceLogs.map((log) => (
+                  <div key={log._id} className="py-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-medium ${log.change > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                        {log.change > 0 ? '↑' : '↓'} {log.note}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-apple-gray-400">
+                      {new Date(log.createdAt).toLocaleString('zh-CN')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setShowPriceLog(false)} className="rounded-lg border border-apple-gray-200 px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">关闭</button>
             </div>
           </div>
         </div>
