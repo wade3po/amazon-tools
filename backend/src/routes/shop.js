@@ -39,9 +39,9 @@ router.get('/', authenticate, async (req, res, next) => {
 // POST /api/shop
 router.post('/', authenticate, async (req, res, next) => {
   try {
-    const { name, marketplace, note } = req.body;
+    const { name, marketplace, note, labelFolder } = req.body;
     if (!name?.trim()) return res.status(400).json({ message: 'Name required' });
-    const shop = await Shop.create({ name: name.trim(), marketplace: marketplace?.trim(), note: note?.trim() });
+    const shop = await Shop.create({ name: name.trim(), marketplace: marketplace?.trim(), note: note?.trim(), labelFolder: labelFolder?.trim() });
     res.status(201).json({ shop });
   } catch (err) { next(err); }
 });
@@ -49,13 +49,14 @@ router.post('/', authenticate, async (req, res, next) => {
 // PUT /api/shop/:id
 router.put('/:id', authenticate, async (req, res, next) => {
   try {
-    const { name, marketplace, note } = req.body;
+    const { name, marketplace, note, labelFolder } = req.body;
     const shop = await Shop.findById(req.params.id);
     if (!shop) return res.status(404).json({ message: 'Not found' });
 
     if (name !== undefined) shop.name = name.trim();
     if (marketplace !== undefined) shop.marketplace = marketplace.trim();
     if (note !== undefined) shop.note = note.trim();
+    if (labelFolder !== undefined) shop.labelFolder = labelFolder.trim();
     await shop.save();
 
     res.json({ shop });

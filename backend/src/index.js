@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
 import shopRoutes from './routes/shop.js';
 import productRoutes from './routes/product.js';
+import settingRoutes from './routes/setting.js';
 import { errorHandler } from './middleware/error.js';
 import { seedDefaultAccount } from './seed.js';
 
@@ -43,6 +44,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api/product', productRoutes);
+app.use('/api/setting', settingRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

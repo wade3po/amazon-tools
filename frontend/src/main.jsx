@@ -10,6 +10,7 @@ import PdfPage from './pages/PdfPage';
 import ShopsPage from './pages/ShopsPage';
 import AccountsPage from './pages/AccountsPage';
 import ProductsPage from './pages/ProductsPage';
+import SettingsPage from './pages/SettingsPage';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(
@@ -25,6 +26,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/shops" element={<ShopsPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

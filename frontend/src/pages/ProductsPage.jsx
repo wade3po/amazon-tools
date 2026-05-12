@@ -77,7 +77,7 @@ function parseExcelRow(row, groupId) {
 
 // ── 表格列定义 ──
 const COLUMNS = [
-  { key: 'groupId',             label: '产品组',      width: 90,  align: 'left' },
+  { key: 'groupId',             label: '产品组',      width: 120, align: 'left' },
   { key: 'sku',                 label: 'SKU',         width: 120, align: 'left' },
   { key: 'name',                label: '品名',        width: 280, align: 'left' },
   { key: 'fnsku',               label: 'FNSKU',       width: 130, align: 'left' },
@@ -101,24 +101,160 @@ const COLUMNS = [
   { key: 'totalWeight',         label: '总重/kg',     width: 75,  align: 'right' },
   { key: 'estimatedInvestment', label: '预计投入',    width: 80,  align: 'right', prefix: '¥' },
   { key: 'estimatedRevenue',    label: '预计收益',    width: 80,  align: 'right', prefix: '¥' },
-  { key: 'labelName',           label: '标签名',      width: 160, align: 'left' },
-  { key: 'labelPageName',       label: '中文标签',    width: 160, align: 'left' },
+  { key: 'labelName',           label: '标签',        width: 80,  align: 'center' },
+  { key: 'labelPageName',       label: '中文标签',    width: 80,  align: 'center' },
   { key: 'packageSize',         label: '包装尺寸',    width: 100, align: 'left' },
   { key: 'packageType',         label: '包装袋类型',  width: 100, align: 'left' },
 ];
 
-function CellValue({ col, value }) {
+// ── 自动计算公式 ──
+// 输入字段：exchangeRate(汇率), managementRate(管理比例%), cost(成本¥), shippingCost(运费¥),
+//           amazonLogisticsFee(亚马逊配送费$), commissionRate(销售佣金占比%), price(销售价$)
+// 公式：
+//   1. 成本占比% + 运费占比% + FBA占比% + 增值税税率% + 毛利占比% = 100%
+//   2. FBA = 亚马逊配送费 + 销售佣金
+//   3. 销售佣金 = 销售价 × 销售佣金占比%
+//   4. 净利润 = [毛利 - (售价 - FBA) × (1 - 管理比例%)] × 汇率
+function calcProduct(p, exchangeRate, managementRate) {
+  const price = n(p.price);           // 销售价 $
+  const cost = n(p.cost);             // 采购成本 ¥
+  const shippingCost = n(p.shippingCost); // 头程运费 ¥
+  const amazonLogFee = n(p.amazonLogisticsFee); // 亚马逊配送费 $
+  const commRate = n(p.commissionRate); // 销售佣金占比 %
+  const vatRate = n(p.vatRate);        // 增值税税率 %
+  const rate = Number(exchangeRate) || 7.2;
+  const mgmtRate = Number(managementRate) || 0; // 管理比例 %
+
+  if (price == null || price === 0) return p; // 没有售价无法计算
+
+  // 销售佣金 = 销售价 × 销售佣金占比%
+  const commission = commRate != null ? price * commRate / 100 : 0;
+
+  // FBA = 亚马逊配送费 + 销售佣金
+  const fbaFee = (amazonLogFee || 0) + commission;
+
+  // 各项占比（以销售价$为基准）
+  const costRate = cost != null ? (cost / rate) / price * 100 : null;       // 成本占比%
+  const shippingRate = shippingCost != null ? (shippingCost / rate) / price * 100 : null; // 运费占比%
+  const fbaRate = fbaFee ? fbaFee / price * 100 : null;                     // FBA占比%
+
+  // 毛利占比% = 100% - 成本占比% - 运费占比% - FBA占比% - 增值税税率%
+  const grossProfitRate = 100 - (costRate || 0) - (shippingRate || 0) - (fbaRate || 0) - (vatRate || 0);
+
+  // 毛利 $ = 销售价 × 毛利占比%
+  const grossProfit = price * grossProfitRate / 100;
+
+  // 净利润 ¥ = [毛利 - (售价 - FBA) × (1 - 管理比例%)] × 汇率
+  // 注：这里 (售价-FBA)×(1-管理比例%) 代表广告等管理费用扣除
+  const netProfit = (grossProfit - (price - fbaFee) * (1 - mgmtRate / 100)) * rate;
+
+  // 投入产出比 = 毛利 / (成本/汇率)  即每投入1美元的产出
+  const roi = cost != null && cost > 0 ? grossProfit / (cost / rate) : null;
+
+  // 20%毛利率建议售价：反推 price 使得 grossProfitRate = 20%
+  // 20% = 100% - cost/(rate*P)*100 - shipping/(rate*P)*100 - (amazonLogFee + P*commRate/100)/P*100 - vatRate
+  // 20 = 100 - cost*100/(rate*P) - shipping*100/(rate*P) - amazonLogFee*100/P - commRate - vatRate
+  // 令 A = cost*100/rate + shipping*100/rate (¥转$后×100), B = amazonLogFee*100, C = commRate + vatRate
+  // 20 = 100 - A/P - B/P - C
+  // A/P + B/P = 100 - C - 20 = 80 - C
+  // P = (A + B) / (80 - C)
+  let suggestedPrice = null;
+  const A = ((cost || 0) + (shippingCost || 0)) * 100 / rate;
+  const B = (amazonLogFee || 0) * 100;
+  const C = (commRate || 0) + (vatRate || 0);
+  const denom = 80 - C;
+  if (denom > 0) {
+    suggestedPrice = (A + B) / denom;
+  }
+
+  // 总重 kg = 重量g × 采购件数 / 1000
+  const weight = n(p.weight);
+  const purchaseQty = n(p.purchaseQty);
+  const totalWeight = (weight != null && purchaseQty != null) ? weight * purchaseQty / 1000 : n(p.totalWeight);
+
+  // 预计投入 ¥ = 成本 × 采购件数
+  const estimatedInvestment = (cost != null && purchaseQty != null) ? cost * purchaseQty : n(p.estimatedInvestment);
+
+  return {
+    ...p,
+    fbaFee: fbaFee != null ? Math.round(fbaFee * 100) / 100 : null,
+    costRate: costRate != null ? Math.round(costRate * 100) / 100 : null,
+    shippingRate: shippingRate != null ? Math.round(shippingRate * 100) / 100 : null,
+    fbaRate: fbaRate != null ? Math.round(fbaRate * 100) / 100 : null,
+    grossProfitRate: Math.round(grossProfitRate * 100) / 100,
+    grossProfit: Math.round(grossProfit * 100) / 100,
+    netProfit: Math.round(netProfit * 100) / 100,
+    roi: roi != null ? Math.round(roi * 100) / 100 : null,
+    suggestedPrice: suggestedPrice != null ? Math.round(suggestedPrice * 100) / 100 : null,
+    totalWeight: totalWeight != null ? Math.round(totalWeight * 100) / 100 : null,
+    estimatedInvestment: estimatedInvestment != null ? Math.round(estimatedInvestment * 100) / 100 : null,
+  };
+}
+
+// ── 获取单元格样式（变色规则）──
+// 1. 销售价 > 建议销售价 → 红色；= → 黑色；< → 绿色
+// 2. 毛利占比 < 20% → 黄色背景
+// 3. 净利润 < 15 → 浅黄色背景；< 10 → 黄色背景
+function getCellStyle(col, value, product) {
+  const style = {};
+  const cls = [];
+
+  if (col.key === 'price' && product.suggestedPrice != null && value != null) {
+    if (value > product.suggestedPrice) {
+      style.color = '#dc2626'; // 红色
+    } else if (value < product.suggestedPrice) {
+      style.color = '#16a34a'; // 绿色
+    } else {
+      style.color = '#1f2937'; // 黑色
+    }
+  }
+
+  if (col.key === 'grossProfitRate' && value != null && value < 20) {
+    style.backgroundColor = '#fef08a'; // 黄色背景
+  }
+
+  if (col.key === 'netProfit' && value != null) {
+    if (value < 10) {
+      style.backgroundColor = '#fef08a'; // 黄色背景
+    } else if (value < 15) {
+      style.backgroundColor = '#fef9c3'; // 浅黄色背景
+    }
+  }
+
+  return style;
+}
+
+function CellValue({ col, value, product }) {
   if (value === null || value === undefined || value === '') {
     return <span className="text-apple-gray-300">—</span>;
   }
+  // 数字保留两位小数
+  let displayValue = value;
+  if (typeof value === 'number') {
+    displayValue = Number.isInteger(value) ? value : value.toFixed(2);
+  }
+
+  const cellStyle = getCellStyle(col, value, product);
+
   if (col.colored && typeof value === 'number') {
+    // 净利润特殊颜色：正绿负红，但如果有背景色规则则优先
+    const textColor = cellStyle.color || (value > 0 ? '#16a34a' : value < 0 ? '#dc2626' : undefined);
     return (
-      <span className={value > 0 ? 'text-green-600 font-medium' : value < 0 ? 'text-red-500 font-medium' : ''}>
-        {col.prefix || ''}{value}{col.suffix || ''}
+      <span style={{ ...cellStyle, color: textColor }} className="font-medium rounded px-1">
+        {col.prefix || ''}{displayValue}{col.suffix || ''}
       </span>
     );
   }
-  return <span>{col.prefix || ''}{value}{col.suffix || ''}</span>;
+
+  if (Object.keys(cellStyle).length > 0) {
+    return (
+      <span style={cellStyle} className="font-medium rounded px-1">
+        {col.prefix || ''}{displayValue}{col.suffix || ''}
+      </span>
+    );
+  }
+
+  return <span>{col.prefix || ''}{displayValue}{col.suffix || ''}</span>;
 }
 
 // ── Product Form ──
@@ -378,6 +514,87 @@ function ImportDialog({ open, onClose, shopId, onSuccess }) {
   );
 }
 
+// ── 打印中文标签：通过 Electron 生成 PDF 并打开 ──
+async function printChineseLabel(product) {
+  const { name, fnsku, packageType } = product;
+
+  if (window.electronAPI?.generateAndOpenChineseLabel) {
+    // Electron 环境：调用主进程生成 PDF 并打开
+    await window.electronAPI.generateAndOpenChineseLabel({ name, fnsku, packageType });
+  } else {
+    // Web 环境：用 HTML 方式打开
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>中文标签 - ${name || fnsku}</title>
+<style>
+  @page { size: 50mm 30mm; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 50mm; height: 30mm; overflow: hidden; }
+  body { font-family: "Microsoft YaHei", "SimHei", "PingFang SC", sans-serif; padding: 2mm 3mm; display: flex; flex-direction: column; justify-content: center; gap: 1mm; }
+  .line { font-size: 7pt; line-height: 1.3; word-break: break-all; }
+  .line-name { font-size: 8pt; font-weight: bold; }
+</style>
+</head>
+<body>
+  <div class="line line-name">品名：${name || '—'}</div>
+  <div class="line">FNSKU：${fnsku || '—'}</div>
+  <div class="line">包装袋类型：${packageType || '—'}</div>
+</body>
+</html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    window.open(URL.createObjectURL(blob), '_blank');
+  }
+}
+
+// ── 打开标签 PDF（根据 SKU+品名 在店铺标签文件夹中查找）──
+async function openLabelPdf(product, labelFolder) {
+  if (!labelFolder) { alert('请先配置标签文件夹路径'); return; }
+  if (!window.electronAPI?.openFile) { alert('此功能仅在桌面端可用'); return; }
+
+  // 拆分文件命名规则：SKU-品名.pdf
+  const sku = product.sku || '';
+  const name = product.name || '';
+  let fileName = sku;
+  if (name) fileName += '-' + name;
+  fileName = fileName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+  if (fileName.length > 80) fileName = fileName.substring(0, 80).trim();
+  fileName += '.pdf';
+
+  const filePath = labelFolder.replace(/[/\\]$/, '') + '\\' + fileName;
+  const result = await window.electronAPI.openFile(filePath);
+  if (result && !result.success) {
+    alert(`文件未找到：\n${filePath}`);
+  }
+}
+
+// ── 自然排序：JAO-1, JAO-2, ..., JAO-10, JAO-11, ..., JAO-014 (视为 JAO-14) ──
+function naturalSortKey(str) {
+  if (!str) return [];
+  return String(str).split(/(\d+)/).map((part) => {
+    const num = parseInt(part, 10);
+    return isNaN(num) ? part.toLowerCase() : num;
+  });
+}
+
+function naturalCompare(a, b) {
+  const ka = naturalSortKey(a);
+  const kb = naturalSortKey(b);
+  for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
+    const va = ka[i] ?? '';
+    const vb = kb[i] ?? '';
+    if (typeof va === 'number' && typeof vb === 'number') {
+      if (va !== vb) return va - vb;
+    } else {
+      const sa = String(va);
+      const sb = String(vb);
+      if (sa !== sb) return sa < sb ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
 // ── Main Page ──
 export default function ProductsPage() {
   const { currentShop } = useCurrentShop();
@@ -403,6 +620,68 @@ export default function ProductsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showLabelFolder, setShowLabelFolder] = useState(false);
+  const [labelFolderValue, setLabelFolderValue] = useState('');
+  const [savingFolder, setSavingFolder] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState(7.2);
+  const [managementRate, setManagementRate] = useState(0);
+  const [savingRate, setSavingRate] = useState(false);
+  // 行内编辑销售价的临时状态
+  const [editingPriceId, setEditingPriceId] = useState(null);
+  const [editingPriceValue, setEditingPriceValue] = useState('');
+
+  // 加载汇率和管理比例配置
+  useEffect(() => {
+    api.get('/setting/exchangeRate').then((res) => {
+      if (res.data?.value) setExchangeRate(res.data.value);
+    }).catch(() => {});
+    api.get('/setting/managementRate').then((res) => {
+      if (res.data?.value != null) setManagementRate(res.data.value);
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveSettings = async () => {
+    setSavingRate(true);
+    try {
+      await api.put('/setting/exchangeRate', { value: Number(exchangeRate), label: '美元兑人民币汇率' });
+      await api.put('/setting/managementRate', { value: Number(managementRate), label: '管理比例%' });
+      toast.success('配置已更新');
+      setShowSettings(false);
+    } catch (err) { toast.error(err.msg || '保存失败'); }
+    finally { setSavingRate(false); }
+  };
+
+  const handleOpenLabelFolder = () => {
+    setLabelFolderValue(currentShop?.labelFolder || '');
+    setShowLabelFolder(true);
+  };
+
+  const handleSaveLabelFolder = async () => {
+    setSavingFolder(true);
+    try {
+      const res = await api.put(`/shop/${shopId}`, { labelFolder: labelFolderValue });
+      toast.success('标签文件夹已更新');
+      setShowLabelFolder(false);
+      // 更新 localStorage 中的 currentShop
+      localStorage.setItem('currentShop', JSON.stringify(res.data.shop));
+      window.dispatchEvent(new Event('shopChanged'));
+    } catch (err) { toast.error(err.msg || '保存失败'); }
+    finally { setSavingFolder(false); }
+  };
+
+  // 行内修改销售价后保存
+  const handleInlinePriceSave = async (productId, newPrice) => {
+    const priceNum = Number(newPrice);
+    if (isNaN(priceNum) || priceNum < 0) { toast.error('请输入有效价格'); return; }
+    try {
+      await api.put(`/product/${productId}`, { price: priceNum });
+      // 更新本地状态
+      setProducts((prev) => prev.map((p) => p._id === productId ? { ...p, price: priceNum } : p));
+      toast.success('售价已更新');
+    } catch (err) { toast.error(err.msg || '保存失败'); }
+    finally { setEditingPriceId(null); }
+  };
 
   const fetchProducts = useCallback(async (p = 1, kw = '') => {
     if (!shopId) return;
@@ -485,6 +764,12 @@ export default function ProductsPage() {
           <p className="mt-0.5 text-sm text-apple-gray-500">{currentShop?.name} · 共 {total} 个产品</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={handleOpenLabelFolder} className="inline-flex items-center gap-1.5 rounded-lg border border-apple-gray-200 px-3.5 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">
+            📁 {currentShop?.labelFolder ? currentShop.labelFolder.split(/[/\\]/).pop() : '标签文件夹'}
+          </button>
+          <button onClick={() => setShowSettings(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-apple-gray-200 px-3.5 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">
+            ⚙️ 汇率:{exchangeRate} | 管理:{managementRate}%
+          </button>
           <button onClick={() => setShowImport(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-apple-gray-200 px-3.5 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">
             <ArrowUpTrayIcon className="h-4 w-4" />批量导入
           </button>
@@ -521,11 +806,11 @@ export default function ProductsPage() {
           </div>
         ) : (
           <>
-            {/* 横向滚动容器 */}
-            <div className="overflow-x-auto">
+            {/* 横向+纵向滚动容器 */}
+            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
               <table className="w-full border-collapse text-xs" style={{ minWidth: COLUMNS.reduce((s, c) => s + c.width, 0) + 80 }}>
-                <thead>
-                  <tr className="border-b border-apple-gray-100 bg-apple-gray-50/80">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-apple-gray-100 bg-apple-gray-50">
                     {COLUMNS.map((col) => (
                       <th
                         key={col.key}
@@ -535,24 +820,34 @@ export default function ProductsPage() {
                         {col.label}
                       </th>
                     ))}
-                    <th className="sticky right-0 bg-apple-gray-50/80 px-3 py-3 text-right font-medium text-apple-gray-400 shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">操作</th>
+                    <th className="sticky right-0 bg-apple-gray-50 px-3 py-3 text-right font-medium text-apple-gray-400 shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-apple-gray-50">
                   {(() => {
+                    // 自然排序：先按 groupId，再按 sku
+                    const sorted = [...products].sort((a, b) => {
+                      const g = naturalCompare(a.groupId || '', b.groupId || '');
+                      if (g !== 0) return g;
+                      return naturalCompare(a.sku || '', b.sku || '');
+                    });
+
                     // 预计算每个产品组的 rowSpan
                     const rowSpanMap = {};
-                    products.forEach((p) => {
+                    sorted.forEach((p) => {
                       const key = p.groupId || p._id;
                       rowSpanMap[key] = (rowSpanMap[key] || 0) + 1;
                     });
                     const renderedGroups = new Set();
 
-                    return products.map((p, rowIdx) => {
+                    return sorted.map((p, rowIdx) => {
                       const groupKey = p.groupId || p._id;
                       const isFirstInGroup = !renderedGroups.has(groupKey);
                       if (isFirstInGroup) renderedGroups.add(groupKey);
                       const span = rowSpanMap[groupKey];
+
+                      // 自动计算派生字段
+                      const computed = calcProduct(p, exchangeRate, managementRate);
 
                       return (
                         <tr
@@ -563,11 +858,11 @@ export default function ProductsPage() {
                           {isFirstInGroup && (
                             <td
                               rowSpan={span}
-                              style={{ minWidth: 90, width: 90 }}
+                              style={{ minWidth: 120, width: 120 }}
                               className="border-r border-apple-gray-100 pl-5 pr-3 align-middle"
                             >
                               {p.groupId ? (
-                                <span className="inline-block rounded-md bg-apple-blue/10 px-2 py-1 text-xs font-semibold text-apple-blue text-center leading-tight">
+                                <span className="inline-block whitespace-nowrap rounded-md bg-apple-blue/10 px-2 py-1 text-xs font-semibold text-apple-blue text-center leading-tight">
                                   {p.groupId}
                                 </span>
                               ) : null}
@@ -575,30 +870,78 @@ export default function ProductsPage() {
                           )}
 
                           {/* 其他列 */}
-                          {COLUMNS.filter((c) => c.key !== 'groupId').map((col) => (
-                            <td
-                              key={col.key}
-                              style={{ minWidth: col.width, width: col.width }}
-                              className={`px-3 py-2.5 text-apple-gray-700 ${col.align === 'right' ? 'text-right' : 'text-left'}`}
-                            >
-                              {col.key === 'sku' ? (
-                                <span className="font-medium text-apple-gray-900">{p.sku}</span>
-                              ) : col.key === 'name' ? (
-                                <span
-                                  className="block truncate"
-                                  style={{ maxWidth: col.width - 24 }}
-                                  title={p.name}
-                                >
-                                  {p.name}
-                                </span>
-                              ) : (
-                                <CellValue col={col} value={p[col.key]} />
-                              )}
-                            </td>
-                          ))}
+                          {COLUMNS.filter((c) => c.key !== 'groupId').map((col) => {
+                            const cellValue = computed[col.key];
+                            const cellStyle = getCellStyle(col, cellValue, computed);
+
+                            return (
+                              <td
+                                key={col.key}
+                                style={{ minWidth: col.width, width: col.width, ...cellStyle }}
+                                className={`px-3 py-2.5 text-apple-gray-700 ${col.align === 'right' ? 'text-right' : 'text-left'}`}
+                              >
+                                {col.key === 'sku' ? (
+                                  <span className="font-medium text-apple-gray-900">{p.sku}</span>
+                                ) : col.key === 'name' ? (
+                                  <span
+                                    className="block truncate"
+                                    style={{ maxWidth: col.width - 24 }}
+                                    title={p.name}
+                                  >
+                                    {p.name}
+                                  </span>
+                                ) : col.key === 'price' ? (
+                                  /* 销售价：双击可编辑 */
+                                  editingPriceId === p._id ? (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      autoFocus
+                                      value={editingPriceValue}
+                                      onChange={(e) => setEditingPriceValue(e.target.value)}
+                                      onBlur={() => handleInlinePriceSave(p._id, editingPriceValue)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleInlinePriceSave(p._id, editingPriceValue);
+                                        if (e.key === 'Escape') setEditingPriceId(null);
+                                      }}
+                                      className="w-full rounded border border-apple-blue bg-white px-1 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-apple-blue"
+                                    />
+                                  ) : (
+                                    <span
+                                      className="cursor-pointer hover:underline font-medium"
+                                      style={cellStyle}
+                                      title="双击修改售价"
+                                      onDoubleClick={() => {
+                                        setEditingPriceId(p._id);
+                                        setEditingPriceValue(p.price ?? '');
+                                      }}
+                                    >
+                                      {cellValue != null ? `$${Number(cellValue).toFixed(2)}` : <span className="text-apple-gray-300">—</span>}
+                                    </span>
+                                  )
+                                ) : col.key === 'labelPageName' ? (
+                                  <button
+                                    onClick={() => printChineseLabel(p)}
+                                    className="rounded-md bg-apple-blue/10 px-2 py-0.5 text-xs font-medium text-apple-blue hover:bg-apple-blue/20"
+                                  >
+                                    打开
+                                  </button>
+                                ) : col.key === 'labelName' ? (
+                                  <button
+                                    onClick={() => openLabelPdf(p, currentShop?.labelFolder)}
+                                    className="rounded-md bg-apple-blue/10 px-2 py-0.5 text-xs font-medium text-apple-blue hover:bg-apple-blue/20"
+                                  >
+                                    打开
+                                  </button>
+                                ) : (
+                                  <CellValue col={col} value={cellValue} product={computed} />
+                                )}
+                              </td>
+                            );
+                          })}
 
                           {/* 操作列 sticky */}
-                          <td className="sticky right-0 bg-white px-3 py-2.5 shadow-[-4px_0_8px_rgba(0,0,0,0.04)] group-hover:bg-apple-gray-50/50">
+                          <td className="sticky right-0 bg-white px-3 py-2.5 shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
                             <div className="flex items-center justify-end gap-0.5">
                               <button onClick={() => openEdit(p)} className="rounded-lg p-1.5 text-apple-gray-300 hover:bg-apple-gray-100 hover:text-apple-blue">
                                 <PencilSquareIcon className="h-4 w-4" />
@@ -636,6 +979,71 @@ export default function ProductsPage() {
         confirmText="删除" danger loading={deleting}
       />
       <ImportDialog open={showImport} onClose={() => setShowImport(false)} shopId={shopId} onSuccess={() => fetchProducts(1, search)} />
+
+      {/* 汇率/管理比例设置弹窗 */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-4 text-base font-semibold text-apple-gray-900">全局配置</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-apple-gray-600">美元兑人民币汇率</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={exchangeRate}
+                  onChange={(e) => setExchangeRate(e.target.value)}
+                  className="w-full rounded-lg border border-apple-gray-200 bg-apple-gray-50 px-3 py-2 text-sm text-apple-gray-900 focus:border-apple-blue focus:bg-white focus:outline-none focus:ring-2 focus:ring-apple-blue/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-apple-gray-600">管理比例 (%)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={managementRate}
+                  onChange={(e) => setManagementRate(e.target.value)}
+                  placeholder="例如：100 表示100%"
+                  className="w-full rounded-lg border border-apple-gray-200 bg-apple-gray-50 px-3 py-2 text-sm text-apple-gray-900 focus:border-apple-blue focus:bg-white focus:outline-none focus:ring-2 focus:ring-apple-blue/20"
+                />
+                <p className="mt-1 text-xs text-apple-gray-400">净利润公式中的管理比例，如100%表示全部扣除广告费</p>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowSettings(false)} className="rounded-lg border border-apple-gray-200 px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">取消</button>
+              <button onClick={handleSaveSettings} disabled={savingRate} className="rounded-lg bg-apple-blue px-4 py-2 text-sm font-medium text-white hover:bg-apple-blue-hover disabled:opacity-50">
+                {savingRate ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 标签文件夹弹窗 */}
+      {showLabelFolder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-4 text-base font-semibold text-apple-gray-900">标签文件夹 - {currentShop?.name}</h2>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-apple-gray-600">本地文件夹路径</label>
+              <input
+                type="text"
+                value={labelFolderValue}
+                onChange={(e) => setLabelFolderValue(e.target.value)}
+                placeholder="如：D:\labels\云理"
+                className="w-full rounded-lg border border-apple-gray-200 bg-apple-gray-50 px-3 py-2 text-sm text-apple-gray-900 focus:border-apple-blue focus:bg-white focus:outline-none focus:ring-2 focus:ring-apple-blue/20"
+              />
+              <p className="mt-1 text-xs text-apple-gray-400">拆分 PDF 后的输出文件夹，点击"标签"列的打开按钮会从这里查找文件</p>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowLabelFolder(false)} className="rounded-lg border border-apple-gray-200 px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">取消</button>
+              <button onClick={handleSaveLabelFolder} disabled={savingFolder} className="rounded-lg bg-apple-blue px-4 py-2 text-sm font-medium text-white hover:bg-apple-blue-hover disabled:opacity-50">
+                {savingFolder ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

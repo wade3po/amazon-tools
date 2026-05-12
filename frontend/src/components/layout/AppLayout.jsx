@@ -5,7 +5,7 @@ import Header from './Header';
 import Sidebar from './Sidebar';
 
 function resolveModule(pathname) {
-  const adminPaths = ['/shops', '/accounts'];
+  const adminPaths = ['/shops', '/accounts', '/settings'];
   if (adminPaths.some((p) => pathname.startsWith(p))) return 'admin';
   return 'tools';
 }

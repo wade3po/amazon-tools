@@ -18,6 +18,11 @@ const shopSchema = new mongoose.Schema({
     default: '',
     maxlength: [200, '备注最多200个字符'],
   },
+  labelFolder: {
+    type: String,
+    trim: true,
+    default: '',
+  },
 }, {
   timestamps: true,
 });

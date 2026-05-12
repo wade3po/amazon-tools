@@ -5,6 +5,7 @@ import {
   UserGroupIcon,
   BuildingStorefrontIcon,
   TableCellsIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 
 const moduleLinks = {
@@ -16,6 +17,7 @@ const moduleLinks = {
   admin: [
     { to: '/shops', label: '店铺管理', icon: BuildingStorefrontIcon },
     { to: '/accounts', label: '账号管理', icon: UserGroupIcon },
+    { to: '/settings', label: '系统配置', icon: Cog6ToothIcon },
   ],
 };
 

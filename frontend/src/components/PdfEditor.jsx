@@ -10,7 +10,6 @@ export default function PdfEditor() {
   const [linkColumn, setLinkColumn] = useState('');
   const [labelPageNameColumn, setLabelPageNameColumn] = useState('');
   const [packageTypeColumn, setPackageTypeColumn] = useState('');
-  const [packageSizeColumn, setPackageSizeColumn] = useState('');
   const [columns, setColumns] = useState([]);
   const [generatingChinesePdf, setGeneratingChinesePdf] = useState(false);
   const [rightText, setRightText] = useState('Made in China');
@@ -42,7 +41,6 @@ export default function PdfEditor() {
     setLinkColumn('');
     setLabelPageNameColumn('');
     setPackageTypeColumn('');
-    setPackageSizeColumn('');
     setMatchPreview([]);
 
     const cols = result.columns.map((c) => c.toLowerCase());
@@ -55,17 +53,12 @@ export default function PdfEditor() {
     const labelPageNameIdx = result.columns.findIndex((c) => c.includes('中文标签'));
     // 包装袋类型列
     const packageTypeIdx = result.columns.findIndex((c) => c.includes('包装袋类型') || c.includes('包装类型'));
-    // 包装尺寸列：优先匹配"包装袋尺寸"，再匹配"包装后尺寸"
-    const packageSizeIdx = result.columns.findIndex((c) => c.includes('包装袋尺寸')) >= 0
-      ? result.columns.findIndex((c) => c.includes('包装袋尺寸'))
-      : result.columns.findIndex((c) => c.includes('包装后尺寸') || c.includes('包装尺寸'));
     if (fnskuIdx >= 0) setFnskuColumn(result.columns[fnskuIdx]);
     if (skuIdx >= 0) setSkuColumn(result.columns[skuIdx]);
     if (nameIdx >= 0) setNameColumn(result.columns[nameIdx]);
     if (linkIdx >= 0) setLinkColumn(result.columns[linkIdx]);
     if (labelPageNameIdx >= 0) setLabelPageNameColumn(result.columns[labelPageNameIdx]);
     if (packageTypeIdx >= 0) setPackageTypeColumn(result.columns[packageTypeIdx]);
-    if (packageSizeIdx >= 0) setPackageSizeColumn(result.columns[packageSizeIdx]);
   };
 
   const handleBuildMap = async () => {
@@ -77,7 +70,6 @@ export default function PdfEditor() {
       nameColumn,
       labelPageNameColumn,
       packageTypeColumn,
-      packageSizeColumn,
     });
     if (result) {
       setSkuMap(result.map);
@@ -184,7 +176,6 @@ export default function PdfEditor() {
               { label: '标签列（可选）', value: linkColumn, set: setLinkColumn },
               { label: '中文标签列（可选）', value: labelPageNameColumn, set: setLabelPageNameColumn },
               { label: '包装袋类型列（可选）', value: packageTypeColumn, set: setPackageTypeColumn },
-              { label: '包装尺寸列（可选）', value: packageSizeColumn, set: setPackageSizeColumn },
             ].map(({ label, value, set, required }) => (
               <div key={label}>
                 <label className="mb-1 block text-xs font-medium text-apple-gray-600">{label}</label>

@@ -19,12 +19,12 @@ export default function ShopsPage() {
   const pageSize = 10;
 
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ name: '', marketplace: '', note: '' });
+  const [addForm, setAddForm] = useState({ name: '', marketplace: '', note: '', labelFolder: '' });
   const [adding, setAdding] = useState(false);
 
   const [showEdit, setShowEdit] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', marketplace: '', note: '' });
+  const [editForm, setEditForm] = useState({ name: '', marketplace: '', note: '', labelFolder: '' });
   const [saving, setSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -64,11 +64,11 @@ export default function ShopsPage() {
     finally { setAdding(false); }
   };
 
-  const openAdd = () => { setAddForm({ name: '', marketplace: '', note: '' }); setShowAdd(true); };
+  const openAdd = () => { setAddForm({ name: '', marketplace: '', note: '', labelFolder: '' }); setShowAdd(true); };
 
   const openEdit = (shop) => {
     setEditId(shop._id);
-    setEditForm({ name: shop.name, marketplace: shop.marketplace || '', note: shop.note || '' });
+    setEditForm({ name: shop.name, marketplace: shop.marketplace || '', note: shop.note || '', labelFolder: shop.labelFolder || '' });
     setShowEdit(true);
   };
 
@@ -115,6 +115,10 @@ export default function ShopsPage() {
       <div>
         <label className="mb-1.5 block text-xs font-medium text-apple-gray-600">{'\u5907\u6CE8'}</label>
         <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={'\u53EF\u9009'} className={inputCls} />
+      </div>
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-apple-gray-600">标签文件夹路径</label>
+        <input type="text" value={form.labelFolder || ''} onChange={(e) => setForm({ ...form, labelFolder: e.target.value })} placeholder="如：D:\labels\店铺名" className={inputCls} />
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel} className="rounded-lg border border-apple-gray-200 px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">{'\u53D6\u6D88'}</button>

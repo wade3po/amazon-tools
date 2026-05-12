@@ -26,4 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   splitPdfLabels: (options) => ipcRenderer.invoke('split-pdf-labels', options),
   writeExcelLinks: (options) => ipcRenderer.invoke('write-excel-links', options),
   generateChineseLabelPdf: (options) => ipcRenderer.invoke('generate-chinese-label-pdf', options),
+
+  // 生成单个中文标签 PDF 并用系统默认程序打开
+  generateAndOpenChineseLabel: (options) => ipcRenderer.invoke('generate-and-open-chinese-label', options),
+
+  // 用系统默认程序打开文件
+  openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
 });

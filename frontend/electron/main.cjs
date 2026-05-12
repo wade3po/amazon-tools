@@ -531,7 +531,7 @@ ipcMain.handle('split-pdf-labels', async (event, options) => {
           const newDoc = await PDFDocument.create();
           const [copiedPage] = await newDoc.copyPages(srcDoc, [pageIdx]);
 
-          const cropPadding = 5;
+          const cropPadding = 0;
           copiedPage.setCropBox(
             label.cropLeft - cropPadding,
             label.cropBottom - cropPadding,
@@ -735,6 +735,87 @@ ipcMain.handle('write-excel-links', async (event, options) => {
   }
 });
 
+// ========== IPC: 生成单个中文标签 PDF 并打开 ==========
+ipcMain.handle('generate-and-open-chinese-label', async (event, options) => {
+  const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+  const fontkit = require('@pdf-lib/fontkit');
+  const { shell } = require('electron');
+  const os = require('os');
+
+  const { name, fnsku, packageType } = options;
+
+  // 50mm × 30mm = 141.7pt × 85.0pt
+  const pageWidth = 141.7, pageHeight = 85.0;
+  const doc = await PDFDocument.create();
+
+  // 加载中文字体
+  const chineseFontPaths = [
+    'C:\\Windows\\Fonts\\simhei.ttf',
+    'C:\\Windows\\Fonts\\simkai.ttf',
+    'C:\\Windows\\Fonts\\simfang.ttf',
+    'C:\\Windows\\Fonts\\SIMHEI.TTF',
+    'C:\\Windows\\Fonts\\SIMKAI.TTF',
+  ];
+  let font;
+  let chineseFontBytes = null;
+  for (const fp of chineseFontPaths) {
+    if (fs.existsSync(fp)) { chineseFontBytes = fs.readFileSync(fp); break; }
+  }
+  if (chineseFontBytes) {
+    doc.registerFontkit(fontkit);
+    font = await doc.embedFont(chineseFontBytes, { subset: true });
+  } else {
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  }
+
+  const page = doc.addPage([pageWidth, pageHeight]);
+  const lines = [
+    { text: '品名：' + (name || '—'), size: 9 },
+    { text: 'FNSKU：' + (fnsku || '—'), size: 8 },
+    { text: '包装袋类型：' + (packageType || '—'), size: 8 },
+  ];
+
+  const marginX = 6;
+  const maxW = pageWidth - marginX * 2;
+  let curY = pageHeight - 12;
+
+  for (const line of lines) {
+    // 简单换行
+    const text = line.text;
+    let remaining = text;
+    while (remaining.length > 0 && curY > 4) {
+      let fit = remaining.length;
+      while (fit > 0 && font.widthOfTextAtSize(remaining.substring(0, fit), line.size) > maxW) {
+        fit--;
+      }
+      if (fit === 0) fit = 1;
+      const chunk = remaining.substring(0, fit);
+      page.drawText(chunk, { x: marginX, y: curY, size: line.size, font, color: rgb(0, 0, 0) });
+      curY -= line.size + 4;
+      remaining = remaining.substring(fit);
+    }
+  }
+
+  const pdfBytes = await doc.save();
+
+  // 保存到临时文件并打开
+  const tmpPath = path.join(os.tmpdir(), `chinese-label-${Date.now()}.pdf`);
+  fs.writeFileSync(tmpPath, pdfBytes);
+  shell.openPath(tmpPath);
+
+  return { success: true, path: tmpPath };
+});
+
+// ========== IPC: 用系统默认程序打开文件 ==========
+ipcMain.handle('open-file', async (event, filePath) => {
+  const { shell } = require('electron');
+  if (fs.existsSync(filePath)) {
+    shell.openPath(filePath);
+    return { success: true };
+  }
+  return { success: false, error: '文件不存在' };
+});
+
 // ========== IPC: 生成中文标签 PDF ==========
 // 策略：先把所有页写进一个大 PDF（字体只 embed 一次），再逐页拆分保存，速度极快
 ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
@@ -795,7 +876,6 @@ ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
     if (!sku) continue;
     const name        = typeof mapVal === 'object' ? (mapVal.name        || '') : '';
     const packageType = typeof mapVal === 'object' ? (mapVal.packageType || '') : '';
-    const packageSize = typeof mapVal === 'object' ? (mapVal.packageSize || '') : '';
 
     const parts = [sku];
     if (name) parts.push(name);
@@ -807,9 +887,8 @@ ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
     seen.add(fileBase);
 
     const outputPath = path.join(outputFolder, fileBase + '.pdf');
-    if (fs.existsSync(outputPath)) { skipped++; continue; } // 已存在则跳过
 
-    entries.push({ fnsku, name, packageType, packageSize, fileBase });
+    entries.push({ fnsku, name, packageType, fileBase });
   }
 
   if (entries.length === 0) return { success: true, count: 0, skipped, errors: [] };
@@ -835,7 +914,6 @@ ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
         { text: '品名：'       + (entry.name        || '—'), size: 9 },
         { text: 'FNSKU：'      + entry.fnsku,                size: 8 },
         { text: '包装袋类型：' + (entry.packageType || '—'), size: 8 },
-        { text: '包装袋尺寸：' + (entry.packageSize || '—'), size: 8 },
       ];
 
       const marginX = 6;
