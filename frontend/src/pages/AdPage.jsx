@@ -29,7 +29,7 @@ function naturalCompare(a, b) {
   return 0;
 }
 
-const inputCls = 'w-full rounded-lg border border-apple-gray-200 bg-apple-gray-50 px-3 py-2 text-sm text-apple-gray-900 placeholder:text-apple-gray-400 focus:border-apple-blue focus:bg-white focus:outline-none focus:ring-2 focus:ring-apple-blue/20';
+const inputCls = 'w-full rounded-lg bg-apple-gray-50 px-3 py-2 text-sm text-apple-gray-900 placeholder:text-apple-gray-400 focus:border-apple-blue focus:bg-white focus:outline-none focus:ring-2 focus:ring-apple-blue/20';
 
 export default function AdPage() {
   const { currentShop } = useCurrentShop();
@@ -167,7 +167,7 @@ export default function AdPage() {
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && setActiveSearch(search)}
             placeholder="搜索 SKU、品名、FNSKU..."
-            className="w-full rounded-lg border border-apple-gray-200 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-apple-gray-400 focus:border-apple-blue focus:outline-none focus:ring-2 focus:ring-apple-blue/20"
+            className="w-full rounded-lg bg-white py-2 pl-9 pr-3 text-sm placeholder:text-apple-gray-400 focus:border-apple-blue focus:outline-none focus:ring-2 focus:ring-apple-blue/20"
           />
         </div>
         <button onClick={() => setActiveSearch(search)} className="rounded-lg bg-apple-blue px-4 py-2 text-sm font-medium text-white hover:bg-apple-blue-hover">搜索</button>
@@ -187,7 +187,7 @@ export default function AdPage() {
           <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 240px)' }}>
             <table className="w-full border-collapse text-xs">
               <thead className="sticky top-0 z-10">
-                <tr className="border-b border-apple-gray-100 bg-apple-gray-50">
+                <tr className="border-b border-apple-gray-200 bg-apple-gray-50">
                   <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-apple-gray-400">产品组</th>
                   <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-apple-gray-400">SKU</th>
                   <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-apple-gray-400">品名</th>
@@ -196,11 +196,10 @@ export default function AdPage() {
                   <th className="whitespace-nowrap px-3 py-3 text-right font-medium text-apple-gray-400">竞价($)</th>
                   <th className="whitespace-nowrap px-3 py-3 text-right font-medium text-apple-gray-400">ACOS(%)</th>
                   <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-apple-gray-400">断货</th>
-                  <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-apple-gray-400">广告操作</th>
-                  <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-apple-gray-400">操作</th>
+                  <th className="sticky right-0 z-20 whitespace-nowrap bg-apple-gray-50 px-3 py-3 text-center font-medium text-apple-gray-400 shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-apple-gray-50">
+              <tbody>
                 {(() => {
                   // 计算 rowSpan
                   const rowSpanMap = {};
@@ -217,9 +216,9 @@ export default function AdPage() {
                     const span = rowSpanMap[groupKey];
 
                     return (
-                      <tr key={r._id} className={`group hover:bg-apple-gray-50/50 ${isFirstInGroup && rowIdx > 0 ? 'border-t-2 border-apple-gray-200' : ''}`}>
+                      <tr key={r._id} className="hover:bg-apple-gray-50/50">
                         {isFirstInGroup && (
-                          <td rowSpan={span} className="border-r border-apple-gray-100 px-3 py-2.5 align-middle text-center">
+                          <td rowSpan={span} className="px-3 py-2.5 align-middle text-center">
                             {r.groupId && <span className="inline-block whitespace-nowrap rounded-md bg-apple-blue/10 px-2 py-0.5 text-xs font-semibold text-apple-blue">{r.groupId}</span>}
                           </td>
                         )}
@@ -242,7 +241,7 @@ export default function AdPage() {
                             <span className="text-apple-gray-300">—</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="sticky right-0 z-10 bg-white px-3 py-2.5 text-center shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
                           <div className="flex items-center justify-center gap-0.5">
                             <button onClick={() => openEdit(r)} title="编辑" className="rounded-lg p-1.5 text-apple-gray-300 hover:bg-apple-gray-100 hover:text-apple-blue">
                               <PencilSquareIcon className="h-4 w-4" />
@@ -322,7 +321,7 @@ export default function AdPage() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowEdit(false)} className="rounded-lg border border-apple-gray-200 px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">取消</button>
+                <button type="button" onClick={() => setShowEdit(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">取消</button>
                 <button type="submit" disabled={saving} className="rounded-lg bg-apple-blue px-4 py-2 text-sm font-medium text-white hover:bg-apple-blue-hover disabled:opacity-50">
                   {saving ? '保存中...' : '保存'}
                 </button>
@@ -373,7 +372,7 @@ export default function AdPage() {
             )}
 
             <div className="mt-4 flex justify-end">
-              <button onClick={() => setShowLogs(false)} className="rounded-lg border border-apple-gray-200 px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">关闭</button>
+              <button onClick={() => setShowLogs(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-apple-gray-700 hover:bg-apple-gray-50">关闭</button>
             </div>
           </div>
         </div>

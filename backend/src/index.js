@@ -8,6 +8,9 @@ import shopRoutes from './routes/shop.js';
 import productRoutes from './routes/product.js';
 import settingRoutes from './routes/setting.js';
 import adRoutes from './routes/ad.js';
+import purchaseRoutes from './routes/purchase.js';
+import stockRoutes from './routes/stock.js';
+import shipmentRoutes from './routes/shipment.js';
 import { errorHandler } from './middleware/error.js';
 import { seedDefaultAccount } from './seed.js';
 
@@ -47,6 +50,9 @@ app.use('/api/shop', shopRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/setting', settingRoutes);
 app.use('/api/ad', adRoutes);
+app.use('/api/purchase', purchaseRoutes);
+app.use('/api/stock', stockRoutes);
+app.use('/api/shipment', shipmentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

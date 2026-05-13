@@ -60,6 +60,8 @@ export default function ShopsPage() {
       toast.success('Created');
       setShowAdd(false);
       reload();
+      // 通知 Header 刷新店铺列表
+      window.dispatchEvent(new Event('shopsUpdated'));
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setAdding(false); }
   };
@@ -81,6 +83,8 @@ export default function ShopsPage() {
       toast.success('Updated');
       setShowEdit(false);
       reload();
+      // 通知 Header 刷新店铺列表（店铺名可能变了）
+      window.dispatchEvent(new Event('shopsUpdated'));
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
   };
@@ -93,6 +97,8 @@ export default function ShopsPage() {
       toast.success('Deleted');
       setDeleteTarget(null);
       reload();
+      // 通知 Header 刷新店铺列表（会自动处理当前店铺被删的情况）
+      window.dispatchEvent(new Event('shopsUpdated'));
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setDeleting(false); }
   };

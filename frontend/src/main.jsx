@@ -11,6 +11,9 @@ import ShopsPage from './pages/ShopsPage';
 import AccountsPage from './pages/AccountsPage';
 import ProductsPage from './pages/ProductsPage';
 import AdPage from './pages/AdPage';
+import PurchasePage from './pages/PurchasePage';
+import StockPage from './pages/StockPage';
+import ShipmentPage from './pages/ShipmentPage';
 import SettingsPage from './pages/SettingsPage';
 import './index.css';
 
@@ -26,6 +29,9 @@ createRoot(document.getElementById('root')).render(
             <Route path="/pdf" element={<PdfPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/ad" element={<AdPage />} />
+            <Route path="/purchase" element={<PurchasePage />} />
+            <Route path="/stock" element={<StockPage />} />
+            <Route path="/shipment" element={<ShipmentPage />} />
             <Route path="/shops" element={<ShopsPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

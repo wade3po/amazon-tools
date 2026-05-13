@@ -57,3 +57,9 @@ body {
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* ===== Data Table Borders ===== */
+table.w-full th,
+table.w-full td {
+  border: 1px solid var(--color-apple-gray-200);
+}

@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import Shop from '../models/Shop.js';
+import Product from '../models/Product.js';
+import PriceLog from '../models/PriceLog.js';
+import AdRecord from '../models/AdRecord.js';
+import AdLog from '../models/AdLog.js';
+import PurchaseRecord from '../models/PurchaseRecord.js';
+import StockRecord from '../models/StockRecord.js';
+import ShipmentRecord from '../models/ShipmentRecord.js';
 
 const router = Router();
 
@@ -68,6 +75,21 @@ router.delete('/:id', authenticate, async (req, res, next) => {
   try {
     const shop = await Shop.findByIdAndDelete(req.params.id);
     if (!shop) return res.status(404).json({ message: 'Not found' });
+
+    // 级联删除该店铺下的所有关联数据
+    const products = await Product.find({ shopId: req.params.id }).select('_id').lean();
+    const productIds = products.map((p) => p._id);
+
+    await Promise.all([
+      Product.deleteMany({ shopId: req.params.id }),
+      PriceLog.deleteMany({ shopId: req.params.id }),
+      AdRecord.deleteMany({ shopId: req.params.id }),
+      AdLog.deleteMany({ shopId: req.params.id }),
+      PurchaseRecord.deleteMany({ shopId: req.params.id }),
+      StockRecord.deleteMany({ shopId: req.params.id }),
+      ShipmentRecord.deleteMany({ shopId: req.params.id }),
+    ]);
+
     res.json({ message: 'Deleted' });
   } catch (err) { next(err); }
 });

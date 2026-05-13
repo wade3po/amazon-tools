@@ -7,6 +7,9 @@ import {
   TableCellsIcon,
   Cog6ToothIcon,
   MegaphoneIcon,
+  ShoppingCartIcon,
+  ArchiveBoxIcon,
+  TruckIcon,
 } from '@heroicons/react/24/outline';
 
 const moduleLinks = {
@@ -15,6 +18,9 @@ const moduleLinks = {
     { to: '/pdf', label: 'PDF 编辑', icon: DocumentTextIcon },
     { to: '/products', label: '产品管理', icon: TableCellsIcon },
     { to: '/ad', label: '广告管理', icon: MegaphoneIcon },
+    { to: '/purchase', label: '采购管理', icon: ShoppingCartIcon },
+    { to: '/stock', label: '库存管理', icon: ArchiveBoxIcon },
+    { to: '/shipment', label: '发货清单', icon: TruckIcon },
   ],
   admin: [
     { to: '/shops', label: '店铺管理', icon: BuildingStorefrontIcon },

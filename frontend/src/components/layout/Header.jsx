@@ -6,7 +6,7 @@ import {
   WrenchScrewdriverIcon,
   Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import api from '../../lib/api';
@@ -27,7 +27,7 @@ export default function Header({ activeModule, onSwitchModule }) {
   const [shopDropdownOpen, setShopDropdownOpen] = useState(false);
   const shopRef = useRef(null);
 
-  useEffect(() => {
+  const loadShops = useCallback(() => {
     api.get('/shop?pageSize=100').then((res) => {
       const list = res.data.shops || [];
       setShops(list);
@@ -37,13 +37,31 @@ export default function Header({ activeModule, onSwitchModule }) {
         setCurrentShop(saved);
         localStorage.setItem('currentShop', JSON.stringify(saved));
       } else if (list.length > 0) {
+        // 当前选中的店铺已不存在（被删除），自动切到第一个
         setCurrentShop(list[0]);
         localStorage.setItem('currentShopId', list[0]._id);
         localStorage.setItem('currentShop', JSON.stringify(list[0]));
         window.dispatchEvent(new Event('shopChanged'));
+      } else {
+        // 没有任何店铺了
+        setCurrentShop(null);
+        localStorage.removeItem('currentShopId');
+        localStorage.removeItem('currentShop');
+        window.dispatchEvent(new Event('shopChanged'));
       }
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadShops();
+  }, [loadShops]);
+
+  // 监听店铺列表变更事件（新增/删除店铺时触发）
+  useEffect(() => {
+    const handler = () => loadShops();
+    window.addEventListener('shopsUpdated', handler);
+    return () => window.removeEventListener('shopsUpdated', handler);
+  }, [loadShops]);
 
   useEffect(() => {
     function handleClick(e) {
@@ -98,20 +116,22 @@ export default function Header({ activeModule, onSwitchModule }) {
         {/* 右侧 */}
         <div className="ml-auto flex items-center gap-3">
           {/* 店铺切换 */}
-          {shops.length > 0 && (
-            <div className="relative" ref={shopRef}>
-              <button
-                onClick={() => setShopDropdownOpen(!shopDropdownOpen)}
-                className="flex items-center gap-1.5 rounded-lg border border-apple-gray-200 bg-apple-gray-50 px-3 py-1.5 text-[13px] font-medium text-apple-gray-700 transition-all hover:border-apple-gray-300 hover:bg-white"
-              >
-                <BuildingStorefrontIcon className="h-4 w-4 text-apple-gray-400" />
-                <span className="max-w-[120px] truncate">{currentShop?.name || '选择店铺'}</span>
-                <ChevronDownIcon className="h-3.5 w-3.5 text-apple-gray-400" />
-              </button>
+          <div className="relative" ref={shopRef}>
+            <button
+              onClick={() => setShopDropdownOpen(!shopDropdownOpen)}
+              className="flex items-center gap-1.5 rounded-lg border border-apple-gray-200 bg-apple-gray-50 px-3 py-1.5 text-[13px] font-medium text-apple-gray-700 transition-all hover:border-apple-gray-300 hover:bg-white"
+            >
+              <BuildingStorefrontIcon className="h-4 w-4 text-apple-gray-400" />
+              <span className="max-w-[120px] truncate">{currentShop?.name || '暂无店铺'}</span>
+              <ChevronDownIcon className="h-3.5 w-3.5 text-apple-gray-400" />
+            </button>
 
-              {shopDropdownOpen && (
-                <div className="absolute right-0 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-apple-gray-200 bg-white shadow-lg">
-                  {shops.map((shop) => {
+            {shopDropdownOpen && (
+              <div className="absolute right-0 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-apple-gray-200 bg-white shadow-lg">
+                {shops.length === 0 ? (
+                  <div className="px-3 py-3 text-center text-[13px] text-apple-gray-400">暂无店铺，请先新增</div>
+                ) : (
+                  shops.map((shop) => {
                     const isActive = currentShop?._id === shop._id;
                     return (
                       <button
@@ -130,11 +150,11 @@ export default function Header({ activeModule, onSwitchModule }) {
                         )}
                       </button>
                     );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                  })
+                )}
+              </div>
+            )}
+          </div>
 
           {/* 用户 */}
           <div className="flex items-center gap-2">
