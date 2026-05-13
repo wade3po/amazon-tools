@@ -12,7 +12,7 @@ router.get('/', authenticate, async (req, res, next) => {
     if (!shopId) return res.status(400).json({ message: 'shopId 必填' });
 
     const products = await Product.find({ shopId })
-      .select('_id shopId groupId sku name fnsku weight')
+      .select('_id shopId groupId sku name fnsku weight labelName labelLink labelPageName packageType')
       .lean();
 
     const existingRecords = await ShipmentRecord.find({ shopId }).lean();
@@ -39,6 +39,10 @@ router.get('/', authenticate, async (req, res, next) => {
         name: product.name,
         fnsku: product.fnsku,
         weight: product.weight,
+        labelName: product.labelName,
+        labelLink: product.labelLink,
+        labelPageName: product.labelPageName,
+        packageType: product.packageType,
       };
     }).filter(Boolean);
 
