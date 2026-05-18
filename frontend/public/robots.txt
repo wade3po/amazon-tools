@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /tools
+Allow: /tools/
+Disallow: /dashboard
+Disallow: /login
+Disallow: /products
+Disallow: /pdf
+Disallow: /ad
+Disallow: /purchase
+Disallow: /stock
+Disallow: /shipment
+Disallow: /shops
+Disallow: /accounts
+Disallow: /settings
+
+Sitemap: https://amazontools.app/sitemap.xml

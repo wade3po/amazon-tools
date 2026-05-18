@@ -806,6 +806,160 @@ ipcMain.handle('generate-and-open-chinese-label', async (event, options) => {
   return { success: true, path: tmpPath };
 });
 
+// ========== IPC: FBA 标签清理（去除发货地信息和目的地公司名称） ==========
+ipcMain.handle('clean-fba-labels', async (event, options) => {
+  const { PDFDocument, rgb } = require('pdf-lib');
+  const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
+
+  // 配置 CMap 以支持中文字体解析
+  const cMapDir = path.join(path.dirname(require.resolve('pdfjs-dist/legacy/build/pdf.mjs')), '..', '..', 'cmaps');
+  const cMapUrl = cMapDir.endsWith('/') ? cMapDir : cMapDir + '/';
+
+  const files = options?.files || [];
+  const outputFolder = options?.outputFolder || '';
+  const results = [];
+
+  for (const filePath of files) {
+    try {
+      const fileBuffer = fs.readFileSync(filePath);
+      const fileBytes = new Uint8Array(fileBuffer);
+
+      // 用 pdfjs 解析文本（配置 CMap 支持中文）
+      const pdfDoc = await pdfjsLib.getDocument({
+        data: fileBytes.slice(),
+        useSystemFonts: true,
+        cMapUrl: cMapUrl,
+        cMapPacked: true,
+      }).promise;
+      const pdfLibDoc = await PDFDocument.load(fileBytes.slice());
+
+      for (let pageIdx = 0; pageIdx < pdfDoc.numPages; pageIdx++) {
+        const page = await pdfDoc.getPage(pageIdx + 1);
+        const content = await page.getTextContent();
+        const pdfLibPage = pdfLibDoc.getPages()[pageIdx];
+        const { width: pageWidth, height: pageHeight } = pdfLibPage.getSize();
+
+        // 收集所有文本项及其位置
+        const textItems = [];
+        for (const item of content.items) {
+          if (!item.str) continue;
+          const tx = item.transform;
+          textItems.push({
+            str: item.str,
+            x: tx[4],
+            y: tx[5],
+            width: item.width || 0,
+            height: Math.abs(tx[3]) || item.height || 10,
+          });
+        }
+
+        // 按 y 坐标分行（y 值相差 < 3 的视为同一行）
+        const lines = [];
+        const sortedItems = [...textItems].sort((a, b) => b.y - a.y);
+        for (const item of sortedItems) {
+          const existingLine = lines.find((line) => Math.abs(line.y - item.y) < 3);
+          if (existingLine) {
+            existingLine.items.push(item);
+          } else {
+            lines.push({ y: item.y, items: [item] });
+          }
+        }
+        for (const line of lines) {
+          line.items.sort((a, b) => a.x - b.x);
+          line.text = line.items.map((i) => i.str).join(' ');
+        }
+
+        const coverAreas = [];
+
+        // 找到包含"发货地"或"目的地"的行
+        const headerLineIdx = lines.findIndex((line) => line.text.includes('发货地') || line.text.includes('目的地'));
+        if (headerLineIdx < 0) continue;
+
+        const headerLine = lines[headerLineIdx];
+        // 找到"发货地："文本项的 x 坐标，作为左右分界
+        const senderLabelItem = headerLine.items.find((i) => i.str.includes('发货地'));
+        const senderX = senderLabelItem ? senderLabelItem.x : pageWidth * 0.5;
+
+        const headerY = headerLine.y;
+
+        // 处理 header 下方的行
+        for (let i = headerLineIdx + 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (headerY - line.y > 45) break;
+
+          for (const item of line.items) {
+            const text = item.str.trim();
+            if (!text) continue;
+
+            const isRightSide = item.x >= senderX - 10;
+
+            if (isRightSide) {
+              // === 发货地区域 ===
+              // 保留"中国"，遮盖其他
+              if (text === '中国') continue;
+              coverAreas.push({
+                x: item.x,
+                y: item.y,
+                width: item.width,
+                height: item.height,
+              });
+            } else {
+              // === 目的地区域 ===
+              // 遮盖 "FBA:" 后面的公司名称
+              if (/^FBA[:\s]/.test(text) && text.length > 5) {
+                const match = text.match(/^(FBA[:\s]*)/);
+                if (match && text.length > match[1].length) {
+                  const prefixLen = match[1].length;
+                  const ratio = prefixLen / text.length;
+                  const prefixWidth = item.width * ratio;
+                  coverAreas.push({
+                    x: item.x + prefixWidth,
+                    y: item.y,
+                    width: item.width - prefixWidth,
+                    height: item.height,
+                  });
+                }
+              }
+              // 其他目的地内容（MEM1、地址等）保留
+            }
+          }
+        }
+
+        // 用白色矩形遮盖
+        for (const area of coverAreas) {
+          pdfLibPage.drawRectangle({
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+            color: rgb(1, 1, 1),
+          });
+        }
+      }
+
+      // 保存新文件
+      const ext = path.extname(filePath);
+      const baseName = path.basename(filePath, ext);
+      let outputPath;
+      if (outputFolder) {
+        outputPath = path.join(outputFolder, `${baseName}_cleaned${ext}`);
+      } else {
+        const dir = path.dirname(filePath);
+        outputPath = path.join(dir, `${baseName}_cleaned${ext}`);
+      }
+
+      const modifiedBytes = await pdfLibDoc.save();
+      fs.writeFileSync(outputPath, Buffer.from(modifiedBytes));
+
+      results.push({ file: filePath, output: outputPath, success: true });
+    } catch (err) {
+      results.push({ file: filePath, success: false, error: err.message });
+    }
+  }
+
+  return results;
+});
+
 // ========== IPC: 用系统默认程序打开文件 ==========
 ipcMain.handle('open-file', async (event, filePath) => {
   const { shell } = require('electron');
@@ -1007,20 +1161,60 @@ function wrapText(text, font, fontSize, maxWidth) {
 async function scrapeAmazonProduct(browser, url) {
   const context = await browser.newContext({
     userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     locale: 'en-US',
+    viewport: { width: 1920, height: 1080 },
     extraHTTPHeaders: {
       'Accept-Language': 'en-US,en;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'DNT': '1',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
     },
   });
 
   const page = await context.newPage();
 
-  try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  // 隐藏自动化特征
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    window.chrome = { runtime: {} };
+  });
 
-    // 等待商品标题出现
-    await page.waitForSelector('#productTitle', { timeout: 15000 }).catch(() => {});
+  try {
+    // 使用 networkidle 等待页面完全加载（包括JS渲染）
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+
+    // 等待商品标题出现（关键元素）
+    await page.waitForSelector('#productTitle', { timeout: 20000 }).catch(() => {});
+
+    // 检测是否触发了验证码/机器人检查
+    const isBlocked = await page.evaluate(() => {
+      const body = document.body.innerText || '';
+      return body.includes('Enter the characters you see below') ||
+             body.includes('Sorry, we just need to make sure') ||
+             body.includes('Type the characters you see in this image') ||
+             !!document.querySelector('#captchacharacters');
+    });
+
+    if (isBlocked) {
+      throw new Error('触发了亚马逊验证码/机器人检测，请稍后重试');
+    }
+
+    // 滚动页面以触发懒加载
+    await page.evaluate(() => window.scrollTo(0, 500));
+    await page.waitForTimeout(1000);
+
+    // 等待图片加载
+    await page.waitForSelector('#landingImage', { timeout: 8000 }).catch(() => {});
+    // 额外等待让图片src从placeholder变成真实URL
+    await page.waitForTimeout(1500);
 
     const product = await page.evaluate(() => {
       const getText = (selector) => {
@@ -1036,65 +1230,148 @@ async function scrapeAmazonProduct(browser, url) {
       // 标题
       const title = getText('#productTitle');
 
-      // 价格（多种可能的选择器）
+      // 价格（多种可能的选择器，按优先级排序）
       let price =
         getText('.a-price .a-offscreen') ||
+        getText('.apexPriceToPay .a-offscreen') ||
+        getText('#corePrice_feature_div .a-price .a-offscreen') ||
+        getText('#corePriceDisplay_desktop_feature_div .a-price .a-offscreen') ||
         getText('#priceblock_ourprice') ||
         getText('#priceblock_dealprice') ||
-        getText('.a-price-whole') ||
         getText('#price_inside_buybox') ||
-        getText('.apexPriceToPay .a-offscreen');
+        getText('.a-price-whole');
 
       // 评分
       const ratingEl = document.querySelector('#acrPopover');
       const rating = ratingEl
         ? ratingEl.getAttribute('title') || getText('#acrPopover .a-icon-alt')
-        : getText('.a-icon-star .a-icon-alt');
+        : getText('.a-icon-star .a-icon-alt') || getText('#averageCustomerReviews .a-icon-alt');
 
       // 评论数
       const reviewCount =
         getText('#acrCustomerReviewText') ||
-        getText('#acrCustomerReviewLink');
+        getText('#acrCustomerReviewLink') ||
+        getText('#reviewsMedley .a-link-normal');
 
-      // ASIN
+      // ASIN - 先从URL提取（最可靠），再从DOM提取
       let asin = '';
-      const asinEl = document.querySelector('[data-asin]');
-      if (asinEl) asin = asinEl.getAttribute('data-asin');
-      if (!asin) {
-        const match = window.location.href.match(/\/dp\/([A-Z0-9]{10})/);
-        if (match) asin = match[1];
+      const urlMatch = window.location.href.match(/\/dp\/([A-Z0-9]{10})/);
+      if (urlMatch) {
+        asin = urlMatch[1];
+      } else {
+        const asinEl = document.querySelector('[data-asin]');
+        if (asinEl && asinEl.getAttribute('data-asin')) {
+          asin = asinEl.getAttribute('data-asin');
+        }
       }
 
       // 品牌
       const brand =
         getText('#bylineInfo') ||
         getText('.po-brand .a-span9') ||
-        getText('#brand');
+        getText('#brand') ||
+        getText('a#bylineInfo');
 
       // 库存状态
       const availability =
         getText('#availability span') ||
         getText('#outOfStock') ||
+        getText('#availability_feature_div .a-color-success') ||
         'Unknown';
 
-      // 主图
-      const imageUrl =
-        getAttr('#landingImage', 'src') ||
-        getAttr('#imgBlkFront', 'src') ||
-        getAttr('.a-dynamic-image', 'src');
+      // 主图 — 尝试多种方式获取高清图片URL
+      let imageUrl = '';
+      const landingImg = document.querySelector('#landingImage');
+      if (landingImg) {
+        // 优先从 data-old-hires 获取高清图（最可靠）
+        imageUrl = landingImg.getAttribute('data-old-hires') || '';
+        
+        // 尝试从 data-a-dynamic-image 中提取（JSON格式，key是URL，value是尺寸）
+        if (!imageUrl) {
+          const dynamicData = landingImg.getAttribute('data-a-dynamic-image');
+          if (dynamicData) {
+            try {
+              const imgMap = JSON.parse(dynamicData);
+              const urls = Object.keys(imgMap);
+              // 选最大尺寸的图片
+              if (urls.length > 0) {
+                imageUrl = urls.reduce((best, url) => {
+                  const [w, h] = imgMap[url];
+                  const [bw, bh] = imgMap[best] || [0, 0];
+                  return (w * h > bw * bh) ? url : best;
+                }, urls[0]);
+              }
+            } catch (e) {}
+          }
+        }
+
+        // 兜底使用 src（可能是低清图或data URI）
+        if (!imageUrl) {
+          const src = landingImg.getAttribute('src') || '';
+          // 排除 data URI 和 placeholder
+          if (src.startsWith('http')) {
+            imageUrl = src;
+          }
+        }
+      }
+
+      // 备选图片选择器
+      if (!imageUrl) {
+        const altImg = document.querySelector('#imgBlkFront') ||
+                       document.querySelector('#ebooksImgBlkFront') ||
+                       document.querySelector('.a-dynamic-image') ||
+                       document.querySelector('#main-image');
+        if (altImg) {
+          imageUrl = altImg.getAttribute('data-old-hires') ||
+                     altImg.getAttribute('src') || '';
+        }
+      }
+
+      // 最后尝试从图片画廊获取
+      if (!imageUrl) {
+        const thumbImg = document.querySelector('.imageThumbnail img, #altImages img');
+        if (thumbImg) {
+          let thumbSrc = thumbImg.getAttribute('src') || '';
+          // 把缩略图URL转为大图URL（替换尺寸参数）
+          imageUrl = thumbSrc.replace(/\._[^.]*_\./, '.');
+        }
+      }
 
       // 类目（面包屑导航）
       const categoryParts = Array.from(
         document.querySelectorAll('#wayfinding-breadcrumbs_feature_div li:not(.a-breadcrumb-divider) .a-link-normal, #wayfinding-breadcrumbs_feature_div li:not(.a-breadcrumb-divider) span.a-color-tertiary')
       ).map((el) => el.textContent.trim()).filter(Boolean);
-      const category = categoryParts.join(' > ');
+      let category = categoryParts.join(' > ');
+      // 备选类目选择器
+      if (!category) {
+        const catParts = Array.from(
+          document.querySelectorAll('.a-breadcrumb .a-link-normal, #nav-subnav .nav-a')
+        ).map((el) => el.textContent.trim()).filter(Boolean);
+        category = catParts.join(' > ');
+      }
 
       // 五点描述（Feature bullets），动态条数
-      const bullets = Array.from(
+      let bullets = Array.from(
         document.querySelectorAll('#feature-bullets li span.a-list-item')
       )
         .map((el) => el.textContent.trim())
         .filter((t) => t.length > 10); // 过滤掉"See more"之类的短文本
+
+      // 备选 bullets 位置
+      if (bullets.length === 0) {
+        bullets = Array.from(
+          document.querySelectorAll('#feature-bullets ul li, .a-unordered-list.a-vertical li span')
+        )
+          .map((el) => el.textContent.trim())
+          .filter((t) => t.length > 10);
+      }
+
+      // 商品描述（A+页面或普通描述）
+      const description =
+        getText('#productDescription p') ||
+        getText('#productDescription') ||
+        getText('#aplus_feature_div') ||
+        '';
 
       return {
         title,
@@ -1107,8 +1384,19 @@ async function scrapeAmazonProduct(browser, url) {
         imageUrl,
         category,
         bullets, // 数组，动态长度
+        description,
       };
     });
+
+    // 如果标题为空，可能是页面没加载好，做一次重试
+    if (!product.title) {
+      await page.waitForTimeout(3000);
+      const retryTitle = await page.evaluate(() => {
+        const el = document.querySelector('#productTitle');
+        return el ? el.textContent.trim() : '';
+      });
+      if (retryTitle) product.title = retryTitle;
+    }
 
     return product;
   } finally {
