@@ -13,4 +13,4 @@ Disallow: /shops
 Disallow: /accounts
 Disallow: /settings
 
-Sitemap: https://amazontools.app/sitemap.xml
+Sitemap: http://amzsmarttools.com/sitemap.xml

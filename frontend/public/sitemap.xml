@@ -1,57 +1,57 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://amazontools.app/tools</loc>
+    <loc>http://amzsmarttools.com/tools</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/search-terms</loc>
+    <loc>http://amzsmarttools.com/tools/search-terms</loc>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/title-optimizer</loc>
+    <loc>http://amzsmarttools.com/tools/title-optimizer</loc>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/flat-file-cleaner</loc>
+    <loc>http://amzsmarttools.com/tools/flat-file-cleaner</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/listing-formatter</loc>
+    <loc>http://amzsmarttools.com/tools/listing-formatter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/box-label-resizer</loc>
+    <loc>http://amzsmarttools.com/tools/box-label-resizer</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/fnsku-splitter</loc>
+    <loc>http://amzsmarttools.com/tools/fnsku-splitter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/barcode-generator</loc>
+    <loc>http://amzsmarttools.com/tools/barcode-generator</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/image-compliance</loc>
+    <loc>http://amzsmarttools.com/tools/image-compliance</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/address-formatter</loc>
+    <loc>http://amzsmarttools.com/tools/address-formatter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://amazontools.app/tools/invoice-cleaner</loc>
+    <loc>http://amzsmarttools.com/tools/invoice-cleaner</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>

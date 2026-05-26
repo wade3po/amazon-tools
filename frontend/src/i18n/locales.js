@@ -1,5 +1,26 @@
 export const locales = {
   en: {
+    // Feedback
+    feedback: {
+      title: 'Feedback',
+      subtitle: 'Found a bug? Have a suggestion? Let us know!',
+      namePlaceholder: 'Your name (optional)',
+      contactPlaceholder: 'Email / WeChat / WhatsApp (for reply)',
+      contactHint: 'Leave your contact info so we can follow up:',
+      messagePlaceholder: 'Your feedback or suggestion...',
+      placeholder_bug: 'Describe the bug: what happened, what you expected...',
+      placeholder_feature: 'What feature would you like? How would it help you?',
+      placeholder_other: 'Anything else you want to tell us...',
+      type_bug: 'Bug',
+      type_feature: 'Feature',
+      type_other: 'Other',
+      send: 'Submit',
+      sending: 'Sending...',
+      sendFailed: 'Failed to send. Please try again.',
+      thankYou: 'Thank you!',
+      willReply: 'We will review your feedback and get back to you.',
+    },
+
     // Common
     common: {
       copy: 'Copy',
@@ -281,6 +302,27 @@ export const locales = {
   },
 
   zh: {
+    // Feedback
+    feedback: {
+      title: '意见反馈',
+      subtitle: '发现Bug？想要新功能？告诉我们！',
+      namePlaceholder: '你的名字（选填）',
+      contactPlaceholder: '邮箱 / 微信号 / 手机号（方便联系你）',
+      contactHint: '留下联系方式，方便我们跟进：',
+      messagePlaceholder: '你的反馈或建议...',
+      placeholder_bug: '描述一下Bug：发生了什么？你期望的结果是什么？',
+      placeholder_feature: '你希望增加什么功能？它能帮你解决什么问题？',
+      placeholder_other: '其他想告诉我们的...',
+      type_bug: 'Bug',
+      type_feature: '新功能',
+      type_other: '其他',
+      send: '提交',
+      sending: '发送中...',
+      sendFailed: '发送失败，请重试。',
+      thankYou: '感谢反馈！',
+      willReply: '我们会尽快查看并回复你。',
+    },
+
     // Common
     common: {
       copy: '复制',

@@ -8,6 +8,7 @@ import {
 import { I18nProvider, useI18n } from '../../i18n';
 import LangSwitch from './LangSwitch';
 import SeoHead from './SeoHead';
+import FeedbackWidget from './FeedbackWidget';
 
 const toolCategories = [
   {
@@ -44,6 +45,7 @@ function ToolsLayoutInner() {
   return (
     <div className="flex min-h-screen bg-[#fafafa]">
       <SeoHead />
+      <FeedbackWidget />
       {/* Sidebar */}
       <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-gray-200/80 bg-white px-3 py-6">
         <div className="mb-6 px-3">

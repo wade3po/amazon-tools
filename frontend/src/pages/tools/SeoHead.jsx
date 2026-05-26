@@ -98,7 +98,7 @@ export default function SeoHead() {
       canonical.setAttribute('rel', 'canonical');
       document.head.appendChild(canonical);
     }
-    canonical.setAttribute('href', `https://amazontools.app${location.pathname}`);
+    canonical.setAttribute('href', `http://amzsmarttools.com${location.pathname}`);
 
     // Set OG tags
     let ogTitle = document.querySelector('meta[property="og:title"]');
