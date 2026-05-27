@@ -3,7 +3,7 @@ import {
   Search, Type, FileText, AlignLeft,
   Package, Barcode, ScanLine,
   Image, MapPin, Receipt,
-  Sparkles, Wrench
+  Sparkles, Wrench, DollarSign, GitCompare
 } from 'lucide-react';
 import { I18nProvider, useI18n } from '../../i18n';
 import LangSwitch from './LangSwitch';
@@ -31,6 +31,9 @@ const toolCategories = [
   {
     labelKey: 'nav.advanced',
     tools: [
+      { path: '/tools/profit-calculator', nameKey: 'profitCalc.title', icon: DollarSign, badge: 'New' },
+      { path: '/tools/batch-renamer', nameKey: 'batchRenamer.title', icon: Image },
+      { path: '/tools/variation-diff', nameKey: 'variationDiff.title', icon: GitCompare },
       { path: '/tools/image-compliance', nameKey: 'imageCompliance.title', icon: Image },
       { path: '/tools/address-formatter', nameKey: 'addressFormatter.title', icon: MapPin },
       { path: '/tools/invoice-cleaner', nameKey: 'invoiceCleaner.title', icon: Receipt },

@@ -30,6 +30,9 @@ const BarcodeGenerator = lazy(() => import('./pages/tools/BarcodeGenerator'));
 const ImageCompliance = lazy(() => import('./pages/tools/ImageCompliance'));
 const AddressFormatter = lazy(() => import('./pages/tools/AddressFormatter'));
 const InvoiceCleaner = lazy(() => import('./pages/tools/InvoiceCleaner'));
+const ProfitCalculator = lazy(() => import('./pages/tools/ProfitCalculator'));
+const BatchRenamer = lazy(() => import('./pages/tools/BatchRenamer'));
+const VariationDiff = lazy(() => import('./pages/tools/VariationDiff'));
 
 import './index.css';
 
@@ -57,6 +60,9 @@ createRoot(document.getElementById('root')).render(
             <Route path="image-compliance" element={<ImageCompliance />} />
             <Route path="address-formatter" element={<AddressFormatter />} />
             <Route path="invoice-cleaner" element={<InvoiceCleaner />} />
+            <Route path="profit-calculator" element={<ProfitCalculator />} />
+            <Route path="batch-renamer" element={<BatchRenamer />} />
+            <Route path="variation-diff" element={<VariationDiff />} />
           </Route>
 
           {/* Main app - requires login */}
