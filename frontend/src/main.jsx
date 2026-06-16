@@ -81,7 +81,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
 
-          <Route path="/" element={<Navigate to="/tools" replace />} />
+          <Route path="/" element={<Navigate to={isElectron ? "/dashboard" : "/tools"} replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
 

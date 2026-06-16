@@ -899,7 +899,7 @@ ipcMain.handle('clean-fba-labels', async (event, options) => {
               if (text === '中国') continue;
               coverAreas.push({
                 x: item.x,
-                y: item.y,
+                y: item.y - 1,
                 width: item.width,
                 height: item.height,
               });
@@ -914,7 +914,7 @@ ipcMain.handle('clean-fba-labels', async (event, options) => {
                   const prefixWidth = item.width * ratio;
                   coverAreas.push({
                     x: item.x + prefixWidth,
-                    y: item.y,
+                    y: item.y - 2,
                     width: item.width - prefixWidth,
                     height: item.height,
                   });
