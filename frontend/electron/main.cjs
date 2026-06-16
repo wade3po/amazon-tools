@@ -970,6 +970,114 @@ ipcMain.handle('open-file', async (event, filePath) => {
   return { success: false, error: '文件不存在' };
 });
 
+// ========== IPC: 选择图片文件 ==========
+ipcMain.handle('select-image-files', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择图片文件夹',
+    properties: ['openDirectory'],
+  });
+  if (!filePaths || filePaths.length === 0) return { folder: null, files: [] };
+
+  const folder = filePaths[0];
+  const folderName = path.basename(folder);
+  const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff'];
+  const allFiles = fs.readdirSync(folder)
+    .filter((f) => imageExts.includes(path.extname(f).toLowerCase()))
+    .sort()
+    .map((f) => path.join(folder, f));
+
+  return { folder, folderName, files: allFiles };
+});
+
+// ========== IPC: 图片转换 PNG → JPG ==========
+ipcMain.handle('convert-images', async (event, options) => {
+  const { createCanvas, loadImage } = require('canvas');
+  const files = options?.files || []; // 数组：文件绝对路径
+  const outputFolder = options?.outputFolder || '';
+  const namePrefix = options?.namePrefix || ''; // 用文件夹名作为前缀
+  const targetSize = options?.targetSize || 2000;
+  const targetKB = options?.targetKB || 800;
+  const maxKB = options?.maxKB || 1000;
+
+  if (!outputFolder) return { success: false, error: '请先选择输出文件夹' };
+  if (files.length === 0) return { success: false, error: '没有选择图片' };
+
+  const results = [];
+  const targetBytes = targetKB * 1024;
+  const maxBytes = maxKB * 1024;
+
+  for (let idx = 0; idx < files.length; idx++) {
+    const filePath = files[idx];
+    try {
+      // 用 buffer 方式加载，避免路径中文/空格问题
+      const fileBuffer = fs.readFileSync(filePath);
+      const img = await loadImage(fileBuffer);
+      const canvas = createCanvas(targetSize, targetSize);
+      const ctx = canvas.getContext('2d');
+
+      // 白色背景
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, targetSize, targetSize);
+
+      // 等比缩放居中
+      const scale = Math.min(targetSize / img.width, targetSize / img.height);
+      const drawWidth = img.width * scale;
+      const drawHeight = img.height * scale;
+      const x = (targetSize - drawWidth) / 2;
+      const y = (targetSize - drawHeight) / 2;
+      ctx.drawImage(img, x, y, drawWidth, drawHeight);
+
+      // 二分法找合适的 quality
+      let lo = 0.1, hi = 0.98, bestBuffer = null;
+
+      const toJpegBuffer = (quality) => {
+        return canvas.toBuffer('image/jpeg', { quality });
+      };
+
+      let buffer = toJpegBuffer(hi);
+      if (buffer.length <= targetBytes) {
+        bestBuffer = buffer;
+      } else {
+        for (let i = 0; i < 8; i++) {
+          const mid = (lo + hi) / 2;
+          buffer = toJpegBuffer(mid);
+          if (buffer.length > targetBytes) {
+            hi = mid;
+          } else {
+            lo = mid;
+            bestBuffer = buffer;
+          }
+        }
+        if (!bestBuffer) {
+          bestBuffer = toJpegBuffer(lo);
+        }
+        if (bestBuffer.length > maxBytes) {
+          bestBuffer = toJpegBuffer(lo * 0.7);
+        }
+      }
+
+      // 输出文件名：前缀-序号.jpg
+      const outputName = namePrefix
+        ? `${namePrefix}-${idx + 1}.jpg`
+        : path.basename(filePath, path.extname(filePath)) + '.jpg';
+      const outputPath = path.join(outputFolder, outputName);
+      fs.writeFileSync(outputPath, bestBuffer);
+
+      results.push({
+        file: filePath,
+        output: outputPath,
+        outputName,
+        size: bestBuffer.length,
+        success: true,
+      });
+    } catch (err) {
+      results.push({ file: filePath, success: false, error: err.message });
+    }
+  }
+
+  return { success: true, results };
+});
+
 // ========== IPC: 生成中文标签 PDF ==========
 // 策略：先把所有页写进一个大 PDF（字体只 embed 一次），再逐页拆分保存，速度极快
 ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {

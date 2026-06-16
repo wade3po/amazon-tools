@@ -35,4 +35,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 用系统默认程序打开文件
   openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
+
+  // 图片转换（PNG → JPG）
+  convertImages: (options) => ipcRenderer.invoke('convert-images', options),
+
+  // 选择图片文件
+  selectImageFiles: () => ipcRenderer.invoke('select-image-files'),
 });

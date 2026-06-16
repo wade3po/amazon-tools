@@ -14,6 +14,7 @@ import {
   ChevronDownIcon,
   PencilSquareIcon,
   ShieldCheckIcon,
+  PhotoIcon,
 } from '@heroicons/react/24/outline';
 
 const moduleLinks = {
@@ -32,6 +33,7 @@ const moduleLinks = {
     { to: '/purchase', label: '采购管理', icon: ShoppingCartIcon },
     { to: '/stock', label: '库存管理', icon: ArchiveBoxIcon },
     { to: '/shipment', label: '发货清单', icon: TruckIcon },
+    { to: '/image-converter', label: '图片转换', icon: PhotoIcon },
   ],
   admin: [
     { to: '/shops', label: '店铺管理', icon: BuildingStorefrontIcon },
