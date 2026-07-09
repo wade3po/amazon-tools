@@ -33,6 +33,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 生成单个中文标签 PDF 并用系统默认程序打开
   generateAndOpenChineseLabel: (options) => ipcRenderer.invoke('generate-and-open-chinese-label', options),
 
+  // 批量合并标签（中文×1 + 英文×N）
+  batchMergeLabels: (options) => ipcRenderer.invoke('batch-merge-labels', options),
+  onBatchMergeProgress: (callback) => {
+    ipcRenderer.on('batch-merge-progress', (event, data) => callback(data));
+  },
+  removeBatchMergeProgressListener: () => {
+    ipcRenderer.removeAllListeners('batch-merge-progress');
+  },
+
+  // 解析 Excel 获取产品列表（标签打印用）
+  parseExcelForLabels: (options) => ipcRenderer.invoke('parse-excel-for-labels', options),
+
   // 用系统默认程序打开文件
   openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
 

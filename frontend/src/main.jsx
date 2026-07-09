@@ -15,6 +15,7 @@ import AdPage from './pages/AdPage';
 import PurchasePage from './pages/PurchasePage';
 import StockPage from './pages/StockPage';
 import ShipmentPage from './pages/ShipmentPage';
+import LabelPrintPage from './pages/LabelPrintPage';
 import ImageConverterPage from './pages/ImageConverterPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -77,6 +78,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/purchase" element={<PurchasePage />} />
             <Route path="/stock" element={<StockPage />} />
             <Route path="/shipment" element={<ShipmentPage />} />
+            <Route path="/label-print" element={<LabelPrintPage />} />
             <Route path="/image-converter" element={<ImageConverterPage />} />
             <Route path="/shops" element={<ShopsPage />} />
             <Route path="/accounts" element={<AccountsPage />} />

@@ -960,6 +960,200 @@ ipcMain.handle('clean-fba-labels', async (event, options) => {
   return results;
 });
 
+// ========== IPC: 批量合并标签（中文标签×1 + 英文标签×N）==========
+ipcMain.handle('batch-merge-labels', async (event, options) => {
+  const { PDFDocument } = require('pdf-lib');
+  const { shell } = require('electron');
+  const os = require('os');
+
+  const { products, labelFolder } = options;
+  // products: [{ sku, name, purchaseQty }]
+
+  if (!labelFolder) return { success: false, error: '请先配置标签文件夹路径' };
+  if (!products || products.length === 0) return { success: false, error: '没有需要打印的产品' };
+
+  // 预先扫描标签文件夹中的所有 PDF 文件
+  const folder = labelFolder.replace(/[/\\]$/, '');
+  let allFiles = [];
+  try {
+    allFiles = fs.readdirSync(folder).filter(f => f.toLowerCase().endsWith('.pdf'));
+  } catch (err) {
+    return { success: false, error: '无法读取标签文件夹：' + err.message };
+  }
+
+  // 根据 SKU 前缀模糊匹配文件
+  function findLabelFile(sku, name, suffix) {
+    // 1. 先用精确文件名尝试
+    let baseFileName = sku || '';
+    if (name) baseFileName += '-' + name;
+    baseFileName = baseFileName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+    if (baseFileName.length > 80) baseFileName = baseFileName.substring(0, 80).trim();
+    const exactName = suffix ? baseFileName + suffix + '.pdf' : baseFileName + '.pdf';
+    if (allFiles.includes(exactName)) return exactName;
+
+    // 2. 用 SKU 开头 + 包含后缀进行模糊匹配
+    const skuPrefix = sku + '-';
+    const candidates = allFiles.filter(f => f.startsWith(skuPrefix));
+
+    if (suffix) {
+      // 中文标签：以 SKU 开头，且文件名包含后缀关键字（如"-中文标签"）
+      const match = candidates.find(f => f.includes(suffix));
+      if (match) return match;
+    } else {
+      // 英文标签：以 SKU 开头，且文件名不包含"中文标签"
+      const match = candidates.find(f => !f.includes('-中文标签'));
+      if (match) return match;
+    }
+
+    return null;
+  }
+
+  const errors = [];
+  const mergedDoc = await PDFDocument.create();
+  let totalPages = 0;
+
+  for (let idx = 0; idx < products.length; idx++) {
+    const product = products[idx];
+    const { sku, name, purchaseQty } = product;
+    if (!purchaseQty || purchaseQty <= 0) continue;
+
+    // 查找中文标签文件
+    const chineseFile = findLabelFile(sku, name, '-中文标签');
+    if (!chineseFile) {
+      // 构建期望的文件名用于报错
+      let expected = sku;
+      if (name) expected += '-' + name;
+      expected = expected.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+      errors.push(`${sku}: 中文标签文件不存在 (${expected}-中文标签.pdf)`);
+      continue;
+    }
+
+    // 查找英文标签文件
+    const englishFile = findLabelFile(sku, name, '');
+    if (!englishFile) {
+      let expected = sku;
+      if (name) expected += '-' + name;
+      expected = expected.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+      errors.push(`${sku}: 英文标签文件不存在 (${expected}.pdf)`);
+      continue;
+    }
+
+    try {
+      // 读取中文标签 PDF
+      const chineseLabelPath = folder + '\\' + chineseFile;
+      const chineseBytes = fs.readFileSync(chineseLabelPath);
+      const chineseDoc = await PDFDocument.load(chineseBytes);
+      const [chinesePage] = await mergedDoc.copyPages(chineseDoc, [0]);
+      mergedDoc.addPage(chinesePage);
+      totalPages++;
+
+      // 读取英文标签 PDF，复制 N 次
+      const englishLabelPath = folder + '\\' + englishFile;
+      const englishBytes = fs.readFileSync(englishLabelPath);
+      const englishDoc = await PDFDocument.load(englishBytes);
+      for (let i = 0; i < purchaseQty; i++) {
+        const [englishPage] = await mergedDoc.copyPages(englishDoc, [0]);
+        mergedDoc.addPage(englishPage);
+        totalPages++;
+      }
+    } catch (err) {
+      errors.push(`${sku}: 处理失败 (${err.message})`);
+    }
+
+    // 发送进度
+    event.sender.send('batch-merge-progress', {
+      current: idx + 1,
+      total: products.length,
+      sku,
+      totalPages,
+    });
+  }
+
+  if (totalPages === 0) {
+    return { success: false, error: '没有成功处理任何标签' + (errors.length > 0 ? '\n' + errors.slice(0, 5).join('\n') : '') };
+  }
+
+  // 保存合并后的 PDF
+  const mergedBytes = await mergedDoc.save();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const outputPath = path.join(os.tmpdir(), `批量标签_${timestamp}.pdf`);
+  fs.writeFileSync(outputPath, mergedBytes);
+
+  // 用系统默认程序打开
+  shell.openPath(outputPath);
+
+  return {
+    success: true,
+    totalPages,
+    outputPath,
+    errors: errors.length > 0 ? errors : undefined,
+    productCount: products.length - errors.length,
+  };
+});
+
+// ========== IPC: 解析 Excel 获取产品列表（标签打印用）==========
+ipcMain.handle('parse-excel-for-labels', async (event, options) => {
+  const XLSX = require('xlsx');
+  const { filePath } = options;
+
+  if (!filePath) return { success: false, error: '文件路径为空' };
+
+  try {
+    const wb = XLSX.readFile(filePath);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+    // 自动查找表头行：找包含 "SKU" 的行
+    let headerRowIdx = 0;
+    for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+      const row = (allRows[i] || []).map((c) => String(c).toUpperCase());
+      if (row.some((c) => c.includes('SKU') || c.includes('FNSKU'))) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+
+    const headers = (allRows[headerRowIdx] || []).map((c) => String(c).trim());
+
+    // 自动识别关键列
+    const skuIdx = headers.findIndex((c) => {
+      const upper = c.toUpperCase();
+      return (upper.includes('SKU') && !upper.includes('FNSKU')) || upper === 'SKU编码' || upper === 'SKU 编码';
+    });
+    const nameIdx = headers.findIndex((c) => c.includes('品名') || c.includes('名称'));
+    const purchaseQtyIdx = headers.findIndex((c) => c.includes('采购件数') || c.includes('采购数量'));
+    const fnskuIdx = headers.findIndex((c) => c.toUpperCase().includes('FNSKU'));
+
+    if (skuIdx < 0) return { success: false, error: '未找到 SKU 列，请确认表格中有"SKU编码"或包含"SKU"的列' };
+    if (purchaseQtyIdx < 0) return { success: false, error: '未找到采购件数列，请确认表格中有"采购件数"或"采购数量"的列' };
+
+    // 解析数据行
+    const products = [];
+    for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+      const row = allRows[i] || [];
+      const sku = String(row[skuIdx] || '').trim();
+      const name = nameIdx >= 0 ? String(row[nameIdx] || '').trim() : '';
+      const purchaseQty = Number(row[purchaseQtyIdx]) || 0;
+      const fnsku = fnskuIdx >= 0 ? String(row[fnskuIdx] || '').trim() : '';
+
+      if (!sku) continue;
+      if (purchaseQty <= 0) continue;
+
+      products.push({ sku, name, fnsku, purchaseQty });
+    }
+
+    return {
+      success: true,
+      products,
+      headers,
+      headerRowIdx,
+      columns: { skuIdx, nameIdx, purchaseQtyIdx, fnskuIdx },
+    };
+  } catch (err) {
+    return { success: false, error: '读取 Excel 失败：' + err.message };
+  }
+});
+
 // ========== IPC: 用系统默认程序打开文件 ==========
 ipcMain.handle('open-file', async (event, filePath) => {
   const { shell } = require('electron');
