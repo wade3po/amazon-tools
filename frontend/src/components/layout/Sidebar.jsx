@@ -16,6 +16,7 @@ import {
   ShieldCheckIcon,
   PhotoIcon,
   TagIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 
 const moduleLinks = {
@@ -27,6 +28,7 @@ const moduleLinks = {
       children: [
         { to: '/pdf/editor', label: 'PDF 编辑', icon: PencilSquareIcon },
         { to: '/pdf/clean', label: 'FBA 标签清理', icon: ShieldCheckIcon },
+        { to: '/pdf/chinese-label-shift', label: '历史中文标签', icon: DocumentTextIcon },
       ],
     },
     { to: '/products', label: '产品管理', icon: TableCellsIcon },
@@ -36,6 +38,7 @@ const moduleLinks = {
     { to: '/shipment', label: '发货清单', icon: TruckIcon },
     { to: '/label-print', label: '标签打印', icon: TagIcon },
     { to: '/image-converter', label: '图片转换', icon: PhotoIcon },
+    { to: '/ai-tag-writer', label: 'AI 标记写入', icon: SparklesIcon },
   ],
   admin: [
     { to: '/shops', label: '店铺管理', icon: BuildingStorefrontIcon },

@@ -17,6 +17,8 @@ import StockPage from './pages/StockPage';
 import ShipmentPage from './pages/ShipmentPage';
 import LabelPrintPage from './pages/LabelPrintPage';
 import ImageConverterPage from './pages/ImageConverterPage';
+import AiTagWriterPage from './pages/AiTagWriterPage';
+import ChineseLabelShiftPage from './pages/ChineseLabelShiftPage';
 import SettingsPage from './pages/SettingsPage';
 
 // SEO Tools pages - lazy loaded for code splitting
@@ -72,6 +74,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/pdf/editor" element={<PdfPage />} />
             <Route path="/pdf/clean" element={<PdfCleanPage />} />
+            <Route path="/pdf/chinese-label-shift" element={<ChineseLabelShiftPage />} />
             <Route path="/pdf" element={<PdfPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/ad" element={<AdPage />} />
@@ -80,6 +83,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/shipment" element={<ShipmentPage />} />
             <Route path="/label-print" element={<LabelPrintPage />} />
             <Route path="/image-converter" element={<ImageConverterPage />} />
+            <Route path="/ai-tag-writer" element={<AiTagWriterPage />} />
             <Route path="/shops" element={<ShopsPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

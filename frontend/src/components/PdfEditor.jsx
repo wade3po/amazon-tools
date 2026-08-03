@@ -12,6 +12,7 @@ export default function PdfEditor() {
   const [packageTypeColumn, setPackageTypeColumn] = useState('');
   const [columns, setColumns] = useState([]);
   const [generatingChinesePdf, setGeneratingChinesePdf] = useState(false);
+  const [chineseTextOffsetY, setChineseTextOffsetY] = useState(-10); // 中文标签文字垂直偏移，负数向下
   const [rightText, setRightText] = useState('Made in China');
   const [fontSize, setFontSize] = useState(8);
   const [marginBottom, setMarginBottom] = useState(8);
@@ -132,7 +133,7 @@ export default function PdfEditor() {
     if (files.length === 0) { alert('请先选择 PDF 文件'); return; }
     setGeneratingChinesePdf(true);
     try {
-      const r = await window.electronAPI.generateChineseLabelPdf({ skuMap, outputFolder, files });
+      const r = await window.electronAPI.generateChineseLabelPdf({ skuMap, outputFolder, files, textOffsetY: chineseTextOffsetY });
       if (r.success) alert(`已生成 ${r.count} 个中文标签 PDF${r.skipped > 0 ? `，跳过已存在 ${r.skipped} 个` : ''}`);
       else alert('生成失败：' + r.error);
     } catch (err) { alert('生成失败：' + err.message); }
@@ -274,6 +275,30 @@ export default function PdfEditor() {
           <div>
             <label className="mb-1 block text-xs font-medium text-apple-gray-600">左右边距 (pt)</label>
             <input type="number" value={marginSide} onChange={(e) => setMarginSide(Number(e.target.value))} min={0} max={200} className={inputCls + " max-w-[120px]"} />
+          </div>
+        </div>
+
+        {/* 中文标签专属设置 */}
+        <div className="mt-4 border-t border-apple-gray-100 pt-4">
+          <p className="mb-2 text-xs font-medium text-apple-gray-500">🇨🇳 中文标签文字位置</p>
+          <div className="flex items-center gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-apple-gray-600">
+                垂直偏移 (pt)
+                <span className="ml-1 font-normal text-apple-gray-400">负数向下 / 正数向上</span>
+              </label>
+              <input
+                type="number"
+                value={chineseTextOffsetY}
+                onChange={(e) => setChineseTextOffsetY(Number(e.target.value))}
+                min={-50}
+                max={50}
+                className={inputCls + " max-w-[140px]"}
+              />
+            </div>
+            <p className="mt-4 text-xs text-apple-gray-400">
+              默认 <code className="rounded bg-apple-gray-100 px-1">-10</code>（向下移 10pt）
+            </p>
           </div>
         </div>
       </section>

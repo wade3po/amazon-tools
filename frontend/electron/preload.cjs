@@ -53,4 +53,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 选择图片文件
   selectImageFiles: () => ipcRenderer.invoke('select-image-files'),
+
+  // AI 标记写入
+  selectImageFilesForTag: () => ipcRenderer.invoke('select-image-files-for-tag'),
+  selectImageFolderForTag: () => ipcRenderer.invoke('select-image-folder-for-tag'),
+  writeXmpAiTags: (options) => ipcRenderer.invoke('write-xmp-ai-tags', options),
+  readXmpAiTags: (files) => ipcRenderer.invoke('read-xmp-ai-tags', files),
+
+  // 历史中文标签重排
+  selectChineseLabelFolder: () => ipcRenderer.invoke('select-chinese-label-folder'),
+  shiftChineseLabelText: (options) => ipcRenderer.invoke('shift-chinese-label-text', options),
+  regenerateChineseLabels: (options) => ipcRenderer.invoke('regenerate-chinese-labels', options),
 });
