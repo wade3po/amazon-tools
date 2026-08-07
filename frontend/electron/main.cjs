@@ -1447,75 +1447,92 @@ ipcMain.handle('scan-images-for-rename', async () => {
 ipcMain.handle('convert-images-in-place', async (event, options) => {
   const { createCanvas, loadImage } = require('canvas');
   const { subFolders } = options;
-  const targetSize = 2048;
   const targetKB = 1000;
   const maxKB = 1200;
   const targetBytes = targetKB * 1024;
   const maxBytes = maxKB * 1024;
   const AI_KEYWORD = 'contains-synthetic-performer';
 
-  const results = []; // [{ folder, file, outputName, size, aiTagged, success, error }]
+  const results = [];
+  let processedCount = 0;
 
   for (const { folder, images } of subFolders) {
     for (const filePath of images) {
+      // 文件不存在则跳过（可能上次已转换并删除）
+      if (!fs.existsSync(filePath)) {
+        results.push({ folder, file: filePath, success: false, error: '文件不存在（可能已处理过）' });
+        continue;
+      }
+
       try {
         const ext = path.extname(filePath).toLowerCase();
         const baseName = path.basename(filePath, ext);
         const leafFolderName = path.basename(folder);
-        const outputName = `${leafFolderName}-${baseName}.jpg`;
-        const outputPath = path.join(folder, outputName);
-
-        // 如果源文件本来就是 jpg 同名，避免覆盖自己（不太可能，但防御一下）
-        const isSameFile = outputPath.toLowerCase() === filePath.toLowerCase();
-
-        const fileBuffer = fs.readFileSync(filePath);
-        const img = await loadImage(fileBuffer);
-
-        const canvas = createCanvas(2000, 2000);
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, 2000, 2000);
-        const scale = Math.min(2000 / img.width, 2000 / img.height);
-        ctx.drawImage(img, (2000 - img.width * scale) / 2, (2000 - img.height * scale) / 2, img.width * scale, img.height * scale);
-
-        // 二分法：找不超过 1000KB 的最高质量
-        let lo = 0.1, hi = 0.98, bestBuffer = null;
-        const toJpeg = q => canvas.toBuffer('image/jpeg', { quality: q });
-        let buf = toJpeg(hi);
-        if (buf.length <= targetBytes) {
-          bestBuffer = buf;
-        } else {
-          for (let i = 0; i < 8; i++) {
-            const mid = (lo + hi) / 2;
-            buf = toJpeg(mid);
-            if (buf.length > targetBytes) hi = mid;
-            else { lo = mid; bestBuffer = buf; }
-          }
-          if (!bestBuffer) bestBuffer = toJpeg(lo);
-          if (bestBuffer.length > maxBytes) bestBuffer = toJpeg(lo * 0.7);
-        }
-
-        // 检测原文件名是否含 -P 标记
         const needsAiTag = /-p$/i.test(baseName) || /-p-/i.test(baseName);
-        let finalBuffer = bestBuffer;
         let aiTagError = null;
-        if (needsAiTag) {
-          try {
-            finalBuffer = writeXmpToJpeg(bestBuffer, AI_KEYWORD);
-          } catch (e) {
-            aiTagError = e.message;
+
+        if (ext === '.jpg' || ext === '.jpeg') {
+          // ── 已是 JPG：直接读取，写入 AI 标记后覆盖 ──
+          let buf = fs.readFileSync(filePath);
+          if (needsAiTag) {
+            try { buf = writeXmpToJpeg(buf, AI_KEYWORD); } catch (e) { aiTagError = e.message; }
           }
-        }
+          fs.writeFileSync(filePath, buf);
+          buf = null;
+          results.push({ folder, file: filePath, outputName: path.basename(filePath), size: 0, aiTagged: needsAiTag && !aiTagError, aiTagError, success: true });
 
-        // 写入 JPG
-        fs.writeFileSync(outputPath, finalBuffer);
+        } else {
+          // ── PNG/其他：转换成 JPG，输出到同文件夹，删除原文件 ──
+          const outputName = `${leafFolderName}-${baseName}.jpg`;
+          const outputPath = path.join(folder, outputName);
 
-        // 删除原 PNG（如果不是同名 jpg）
-        if (!isSameFile && ext !== '.jpg' && ext !== '.jpeg') {
+          const fileBuffer = fs.readFileSync(filePath);
+          const img = await loadImage(fileBuffer);
+
+          const canvas = createCanvas(2000, 2000);
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, 2000, 2000);
+          const scale = Math.min(2000 / img.width, 2000 / img.height);
+          ctx.drawImage(img, (2000 - img.width * scale) / 2, (2000 - img.height * scale) / 2, img.width * scale, img.height * scale);
+
+          let lo = 0.1, hi = 0.98, bestBuffer = null;
+          const toJpeg = q => canvas.toBuffer('image/jpeg', { quality: q });
+          let buf = toJpeg(hi);
+          if (buf.length <= targetBytes) {
+            bestBuffer = buf;
+          } else {
+            for (let i = 0; i < 8; i++) {
+              const mid = (lo + hi) / 2;
+              buf = toJpeg(mid);
+              if (buf.length > targetBytes) hi = mid;
+              else { lo = mid; bestBuffer = buf; }
+            }
+            if (!bestBuffer) bestBuffer = toJpeg(lo);
+            if (bestBuffer.length > maxBytes) bestBuffer = toJpeg(lo * 0.7);
+          }
+          buf = null;
+
+          let finalBuffer = bestBuffer;
+          if (needsAiTag) {
+            try { finalBuffer = writeXmpToJpeg(bestBuffer, AI_KEYWORD); } catch (e) { aiTagError = e.message; }
+          }
+          bestBuffer = null;
+
+          fs.writeFileSync(outputPath, finalBuffer);
+          finalBuffer = null;
+
+          // 删除原文件
           fs.unlinkSync(filePath);
+
+          results.push({ folder, file: filePath, outputName, size: 0, aiTagged: needsAiTag && !aiTagError, aiTagError, success: true });
         }
 
-        results.push({ folder, file: filePath, outputName, size: finalBuffer.length, aiTagged: needsAiTag && !aiTagError, aiTagError, success: true });
+        // 每 5 张让出事件循环给 GC
+        processedCount++;
+        if (processedCount % 5 === 0) {
+          await new Promise(resolve => setImmediate(resolve));
+        }
       } catch (err) {
         results.push({ folder, file: filePath, success: false, error: err.message });
       }
