@@ -46,6 +46,8 @@ export default function ImageRenamerPage() {
         groupMap.set(img.folder, {
           folder: img.folder,
           folderName: img.folder.split(/[\\/]/).filter(Boolean).pop(),
+          newFolderName: img.folder.split(/[\\/]/).filter(Boolean).pop(),
+          folderStatus: 'idle',
           images: [],
         });
       }
@@ -74,6 +76,38 @@ export default function ImageRenamerPage() {
         ),
       }
     ));
+  };
+
+  const handleFolderNameChange = (folder, value) => {
+    setGroups(prev => prev.map(g =>
+      g.folder !== folder ? g : { ...g, newFolderName: value }
+    ));
+  };
+
+  const handleRenameFolder = async (folder) => {
+    const g = groups.find(x => x.folder === folder);
+    if (!g || !g.newFolderName.trim() || g.newFolderName.trim() === g.folderName) return;
+    const res = await window.electronAPI.renameFolder({ folderPath: folder, newName: g.newFolderName.trim() });
+    if (res.success && !res.skipped) {
+      toast.success(`文件夹已重命名为：${res.newName}`);
+      // 更新 group 里的 folder 路径和 folderName
+      setGroups(prev => prev.map(g2 =>
+        g2.folder !== folder ? g2 : {
+          ...g2,
+          folder: res.newPath,
+          folderName: res.newName,
+          newFolderName: res.newName,
+          folderStatus: 'done',
+          images: g2.images.map(img => ({
+            ...img,
+            folder: res.newPath,
+            filePath: img.filePath.replace(folder, res.newPath),
+          })),
+        }
+      ));
+    } else if (!res.success) {
+      toast.error(res.error || '重命名失败');
+    }
   };
 
   // ── 执行重命名 ──
@@ -169,9 +203,39 @@ export default function ImageRenamerPage() {
         <div key={g.folder} className="rounded-xl border border-apple-gray-200 bg-white overflow-hidden">
           {/* 文件夹标题 */}
           <div className="flex items-center gap-2 bg-apple-gray-50 border-b border-apple-gray-100 px-4 py-2.5">
-            <FolderOpenIcon className="h-4 w-4 text-apple-gray-400" />
-            <span className="text-sm font-semibold text-apple-gray-800">{g.folderName}</span>
+            <FolderOpenIcon className="h-4 w-4 text-apple-gray-400 flex-shrink-0" />
+            <span className={`text-sm font-semibold ${g.folderStatus === 'done' ? 'text-green-600' : 'text-apple-gray-800'}`}>
+              {g.folderName}
+            </span>
             <span className="text-xs text-apple-gray-400 ml-1">{g.images.length} 张</span>
+            {/* 文件夹重命名输入框 */}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <input
+                type="text"
+                value={g.newFolderName}
+                onChange={e => handleFolderNameChange(g.folder, e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleRenameFolder(g.folder)}
+                disabled={processing || g.folderStatus === 'done'}
+                placeholder="文件夹新名称"
+                className={`w-48 rounded-lg border px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue/20 disabled:opacity-50 ${
+                  g.newFolderName.trim() && g.newFolderName.trim() !== g.folderName
+                    ? 'border-apple-blue bg-blue-50/30 text-apple-gray-900'
+                    : 'border-apple-gray-200 bg-white text-apple-gray-600'
+                }`}
+              />
+              {g.newFolderName.trim() && g.newFolderName.trim() !== g.folderName && g.folderStatus !== 'done' && (
+                <button
+                  onClick={() => handleRenameFolder(g.folder)}
+                  disabled={processing}
+                  className="rounded-lg bg-apple-blue px-2.5 py-1 text-xs font-medium text-white hover:bg-apple-blue-hover disabled:opacity-50"
+                >
+                  确认
+                </button>
+              )}
+              {g.folderStatus === 'done' && (
+                <CheckCircleIcon className="h-4 w-4 text-green-500 flex-shrink-0" />
+              )}
+            </div>
           </div>
 
           {/* 4 列网格 */}

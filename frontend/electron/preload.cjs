@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanImageFolderForRename: () => ipcRenderer.invoke('scan-image-folder-for-rename'),
   renameImages: (options) => ipcRenderer.invoke('rename-images', options),
   readImageAsBase64: (filePath) => ipcRenderer.invoke('read-image-as-base64', filePath),
+  renameFolder: (options) => ipcRenderer.invoke('rename-folder', options),
 
   // 图片重命名
   scanImagesForRename: () => ipcRenderer.invoke('scan-images-for-rename'),

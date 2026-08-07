@@ -1277,6 +1277,21 @@ ipcMain.handle('convert-images', async (event, options) => {
   return { success: true, results };
 });
 
+// ========== IPC: 重命名文件夹 ==========
+ipcMain.handle('rename-folder', async (event, options) => {
+  const { folderPath, newName } = options;
+  try {
+    const parent = path.dirname(folderPath);
+    const newPath = path.join(parent, newName.trim());
+    if (newPath === folderPath) return { success: true, skipped: true, newPath };
+    if (fs.existsSync(newPath)) return { success: false, error: `文件夹已存在：${newName}` };
+    fs.renameSync(folderPath, newPath);
+    return { success: true, newPath, newName: newName.trim() };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // ========== IPC: 读取图片为 base64（解决 CSP 限制本地文件访问）==========
 ipcMain.handle('read-image-as-base64', async (event, filePath) => {
   try {
