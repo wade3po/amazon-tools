@@ -1,76 +1,74 @@
 import { useState } from 'react';
-import { PhotoIcon, FolderOpenIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { FolderOpenIcon, CheckCircleIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
+function getFileName(p) {
+  return p.split(/[\\/]/).pop();
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  return (bytes / 1024).toFixed(0) + ' KB';
+}
+
 export default function ImageConverterPage() {
-  const [files, setFiles] = useState([]); // 文件路径数组
-  const [sourceFolder, setSourceFolder] = useState('');
-  const [folderName, setFolderName] = useState('');
-  const [outputFolder, setOutputFolder] = useState('');
+  const [rootFolder, setRootFolder] = useState('');
+  const [subFolders, setSubFolders] = useState([]); // [{ folder, folderName, images }]
+  const [totalImages, setTotalImages] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState([]);
+  const [summary, setSummary] = useState(null);
 
-  const handleSelectSourceFolder = async () => {
-    if (!window.electronAPI) {
-      toast.error('此功能仅在桌面端可用');
+  const isElectron = !!window.electronAPI;
+
+  // ── 选择根目录并扫描 ──
+  const handleScan = async () => {
+    if (!isElectron) { toast.error('此功能仅在桌面端可用'); return; }
+    const res = await window.electronAPI.scanImageFolder();
+    if (!res) return;
+    if (res.subFolders.length === 0) {
+      toast.error('未找到包含图片的子文件夹');
       return;
     }
-    const res = await window.electronAPI.selectImageFiles();
-    if (res && res.folder) {
-      setSourceFolder(res.folder);
-      setFolderName(res.folderName);
-      setFiles(res.files);
-      setResults([]);
-    }
-  };
-
-  const handleSelectOutputFolder = async () => {
-    if (!window.electronAPI) {
-      toast.error('此功能仅在桌面端可用');
-      return;
-    }
-    const folder = await window.electronAPI.selectOutputFolder();
-    if (folder) {
-      setOutputFolder(folder);
-    }
-  };
-
-  const clearAll = () => {
-    setFiles([]);
-    setSourceFolder('');
-    setFolderName('');
+    setRootFolder(res.rootFolder);
+    setSubFolders(res.subFolders);
+    setTotalImages(res.totalImages);
     setResults([]);
+    setSummary(null);
+    toast.success(`扫描完成：${res.subFolders.length} 个文件夹，共 ${res.totalImages} 张图片`);
   };
 
+  const handleClear = () => {
+    setRootFolder('');
+    setSubFolders([]);
+    setTotalImages(0);
+    setResults([]);
+    setSummary(null);
+  };
+
+  // ── 开始转换 ──
   const handleConvert = async () => {
-    if (files.length === 0) {
-      toast.error('请先选择图片文件夹');
-      return;
-    }
-    if (!outputFolder) {
-      toast.error('请先选择输出文件夹');
-      return;
-    }
+    if (!isElectron) { toast.error('此功能仅在桌面端可用'); return; }
+    if (subFolders.length === 0) { toast.error('请先选择根目录'); return; }
 
     setProcessing(true);
     setResults([]);
+    setSummary(null);
 
     try {
-      const res = await window.electronAPI.convertImages({
-        files,
-        outputFolder,
-        namePrefix: folderName, // 用源文件夹名称作为前缀
-        targetSize: 2000,
-        targetKB: 800,
-        maxKB: 1000,
-      });
+      const res = await window.electronAPI.convertImagesInPlace({ subFolders });
+      setResults(res);
 
-      if (res.success) {
-        setResults(res.results);
-        const successCount = res.results.filter((r) => r.success).length;
-        toast.success(`转换完成：${successCount}/${files.length} 张`);
+      const success = res.filter(r => r.success).length;
+      const failed = res.filter(r => !r.success).length;
+      const aiTagged = res.filter(r => r.aiTagged).length;
+      setSummary({ success, failed, aiTagged });
+
+      if (failed === 0) {
+        toast.success(`转换完成：${success} 张成功${aiTagged ? `，${aiTagged} 张写入AI标记` : ''}`);
       } else {
-        toast.error(res.error || '转换失败');
+        toast.error(`完成：${success} 成功，${failed} 失败`);
       }
     } catch (err) {
       toast.error('转换失败：' + err.message);
@@ -79,15 +77,7 @@ export default function ImageConverterPage() {
     }
   };
 
-  const formatSize = (bytes) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return bytes + ' B';
-    return (bytes / 1024).toFixed(0) + ' KB';
-  };
-
-  const getFileName = (filePath) => {
-    return filePath.split(/[\\/]/).pop();
-  };
+  const rootFolderName = rootFolder.split(/[\\/]/).filter(Boolean).pop() || '';
 
   return (
     <div className="space-y-6">
@@ -95,117 +85,130 @@ export default function ImageConverterPage() {
       <div>
         <h1 className="text-xl font-semibold text-apple-gray-900">图片转换</h1>
         <p className="mt-0.5 text-sm text-apple-gray-500">
-          PNG → JPG · 2000×2000 · 白底填充 · 目标 800KB · 用文件夹名按顺序命名
+          PNG → JPG · 1800×1800 · 白底填充 · 1000KB · 输出到原文件夹 · 自动删除原 PNG
         </p>
       </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* 选择根目录 */}
+      <div className="flex items-center gap-3">
         <button
-          onClick={handleSelectSourceFolder}
-          className="inline-flex items-center gap-2 rounded-lg border border-apple-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-apple-gray-700 transition-all hover:bg-apple-gray-50 active:scale-[0.97]"
+          onClick={handleScan}
+          disabled={processing}
+          className="inline-flex items-center gap-2 rounded-lg border border-apple-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-apple-gray-700 transition-all hover:bg-apple-gray-50 active:scale-[0.97] disabled:opacity-50"
         >
           <FolderOpenIcon className="h-4 w-4" />
-          选择图片文件夹
+          选择根目录
         </button>
-
-        <button
-          onClick={handleSelectOutputFolder}
-          className="inline-flex items-center gap-2 rounded-lg border border-apple-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-apple-gray-700 transition-all hover:bg-apple-gray-50 active:scale-[0.97]"
-        >
-          <FolderOpenIcon className="h-4 w-4" />
-          选择输出文件夹
-        </button>
+        {rootFolder && !processing && (
+          <button onClick={handleClear} className="text-xs text-apple-gray-400 hover:text-red-500 transition-colors">
+            清空
+          </button>
+        )}
       </div>
 
-      {/* Folder Info */}
-      {sourceFolder && (
-        <div className="flex flex-col gap-1.5 rounded-xl border border-apple-gray-200 bg-white p-4">
+      {/* 扫描结果概览 */}
+      {rootFolder && (
+        <div className="rounded-xl border border-apple-gray-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-apple-gray-700">
-              📁 源文件夹：<span className="text-apple-gray-900">{folderName}</span>
-            </span>
-            <button onClick={clearAll} className="text-xs text-apple-gray-400 hover:text-apple-red">
-              清空
-            </button>
+            <div>
+              <div className="text-sm font-medium text-apple-gray-900">📁 {rootFolderName}</div>
+              <div className="text-xs text-apple-gray-400 mt-0.5">{rootFolder}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-semibold text-apple-gray-900">{totalImages} 张</div>
+              <div className="text-xs text-apple-gray-400">{subFolders.length} 个文件夹</div>
+            </div>
           </div>
-          <span className="text-xs text-apple-gray-400">{sourceFolder}</span>
-          <span className="text-xs text-apple-gray-500">找到 {files.length} 张图片</span>
-          <span className="text-xs text-apple-blue">
-            输出命名：{folderName}-1.jpg, {folderName}-2.jpg, {folderName}-3.jpg ...
-          </span>
-        </div>
-      )}
 
-      {outputFolder && (
-        <div className="rounded-xl border border-apple-gray-200 bg-white p-4">
-          <span className="text-sm font-medium text-apple-gray-700">
-            📂 输出到：<span className="text-apple-gray-900">{outputFolder}</span>
-          </span>
-        </div>
-      )}
-
-      {/* File List */}
-      {files.length > 0 && (
-        <div className="space-y-3">
-          <div className="divide-y divide-apple-gray-100 rounded-xl border border-apple-gray-200 bg-white max-h-48 overflow-y-auto">
-            {files.map((filePath, idx) => (
-              <div key={filePath} className="flex items-center gap-3 px-4 py-2">
-                <span className="text-xs text-apple-gray-400 w-6 text-right">{idx + 1}</span>
-                <PhotoIcon className="h-4 w-4 flex-shrink-0 text-apple-gray-400" />
-                <span className="flex-1 text-sm text-apple-gray-700 truncate">{getFileName(filePath)}</span>
-                <span className="text-xs text-apple-gray-400">→ {folderName}-{idx + 1}.jpg</span>
+          {/* 子文件夹列表 */}
+          <div className="max-h-48 overflow-y-auto divide-y divide-apple-gray-100 rounded-lg border border-apple-gray-100">
+            {subFolders.map((sf, i) => (
+              <div key={sf.folder} className="flex items-center gap-3 px-3 py-2">
+                <span className="w-5 text-xs text-apple-gray-400 text-right flex-shrink-0">{i + 1}</span>
+                <span className="flex-1 text-sm text-apple-gray-700 truncate" title={sf.folder}>
+                  {sf.folderName}
+                </span>
+                <span className="text-xs text-apple-gray-400 flex-shrink-0">{sf.images.length} 张</span>
               </div>
             ))}
           </div>
-
-          {/* Convert Button */}
-          <button
-            onClick={handleConvert}
-            disabled={processing || !outputFolder}
-            className="w-full rounded-xl bg-apple-blue px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-apple-blue-hover active:scale-[0.98] disabled:opacity-50"
-          >
-            {processing ? (
-              <span className="flex items-center justify-center gap-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                转换中...
-              </span>
-            ) : !outputFolder ? (
-              '请先选择输出文件夹'
-            ) : (
-              `开始转换 · ${files.length} 张图片`
-            )}
-          </button>
         </div>
       )}
 
-      {/* Results */}
+      {/* 转换按钮 */}
+      {subFolders.length > 0 && (
+        <button
+          onClick={handleConvert}
+          disabled={processing}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-apple-blue px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-apple-blue-hover active:scale-[0.98] disabled:opacity-50"
+        >
+          {processing ? (
+            <>
+              <ArrowPathIcon className="h-4 w-4 animate-spin" />
+              转换中…
+            </>
+          ) : (
+            <>
+              <CheckCircleIcon className="h-4 w-4" />
+              开始转换 · {totalImages} 张图片
+            </>
+          )}
+        </button>
+      )}
+
+      {/* 汇总结果 */}
+      {summary && (
+        <div className="rounded-xl border border-apple-gray-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-apple-gray-800 mb-3">转换结果</h3>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-2xl font-bold text-green-500">{summary.success}</div>
+              <div className="text-xs text-apple-gray-500 mt-0.5">转换成功</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-blue-500">{summary.aiTagged}</div>
+              <div className="text-xs text-apple-gray-500 mt-0.5">写入AI标记</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-red-500">{summary.failed}</div>
+              <div className="text-xs text-apple-gray-500 mt-0.5">失败</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 详细结果列表 */}
       {results.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-apple-gray-700">
-              转换结果 · {results.filter((r) => r.success).length}/{results.length} 成功
-            </span>
+        <div className="rounded-xl border border-apple-gray-200 bg-white overflow-hidden">
+          <div className="flex items-center justify-between border-b border-apple-gray-100 bg-apple-gray-50 px-4 py-2">
+            <span className="text-xs font-medium text-apple-gray-500">详细结果</span>
             <button
-              onClick={() => window.electronAPI?.openFile(outputFolder)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-apple-blue hover:text-apple-blue-hover"
+              onClick={() => window.electronAPI?.openFile(rootFolder)}
+              className="inline-flex items-center gap-1 text-xs text-apple-blue hover:text-apple-blue-hover"
             >
               <FolderOpenIcon className="h-3.5 w-3.5" />
-              打开文件夹
+              打开根目录
             </button>
           </div>
-
-          <div className="divide-y divide-apple-gray-100 rounded-xl border border-apple-gray-200 bg-white max-h-72 overflow-y-auto">
+          <div className="max-h-64 overflow-y-auto divide-y divide-apple-gray-100">
             {results.map((r, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+              <div key={i} className="flex items-center gap-3 px-4 py-2">
                 <div className={`h-2 w-2 flex-shrink-0 rounded-full ${r.success ? 'bg-green-400' : 'bg-red-400'}`} />
-                <span className="flex-1 text-sm text-apple-gray-700 truncate">
-                  {r.success ? r.outputName : getFileName(r.file)}
+                <span className="flex-1 text-sm text-apple-gray-700 truncate" title={r.file}>
+                  {getFileName(r.file)}
                 </span>
                 {r.success ? (
-                  <span className="text-xs text-apple-gray-400">{formatSize(r.size)}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-apple-gray-400 flex-shrink-0">
+                    {r.aiTagged && (
+                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-500 font-medium">AI</span>
+                    )}
+                    {r.aiTagError && (
+                      <span className="rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-500 font-medium" title={r.aiTagError}>AI标记失败</span>
+                    )}
+                    {formatSize(r.size)}
+                  </span>
                 ) : (
-                  <span className="text-xs text-red-500">{r.error}</span>
+                  <span className="text-xs text-red-500 flex-shrink-0">{r.error}</span>
                 )}
               </div>
             ))}
@@ -213,15 +216,15 @@ export default function ImageConverterPage() {
         </div>
       )}
 
-      {/* Tips */}
+      {/* 说明 */}
       <div className="rounded-xl border border-apple-gray-200 bg-white p-5">
         <h3 className="text-sm font-semibold text-apple-gray-800 mb-2">说明</h3>
         <ul className="space-y-1.5 text-xs text-apple-gray-500">
-          <li>• 选择图片文件夹后，自动读取其中所有图片文件</li>
-          <li>• 输出命名规则：文件夹名-序号.jpg（如"12 水槽过滤网-1.jpg"）</li>
-          <li>• 输出格式：JPG，2000×2000 像素，白色背景填充</li>
-          <li>• 自动调整 JPEG 压缩质量，使文件大小接近 800KB（不超过 1MB）</li>
-          <li>• 图片等比缩放居中，不裁剪不拉伸</li>
+          <li>• 选择根目录后，自动扫描两级子文件夹内的所有图片</li>
+          <li>• 输出文件名保持原文件名，只将扩展名改为 <code className="rounded bg-apple-gray-100 px-1 font-mono">.jpg</code></li>
+          <li>• 输出到原文件夹，转换完成后自动删除原始 PNG</li>
+          <li>• 输出格式：JPG，2000×2000 像素，白色背景，目标 1000KB</li>
+          <li>• 原文件名含 <code className="rounded bg-apple-gray-100 px-1 font-mono">-P</code> 的图片，自动写入 AI 合规 XMP 标记</li>
         </ul>
       </div>
     </div>

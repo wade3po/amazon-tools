@@ -38,6 +38,7 @@ const moduleLinks = {
     { to: '/shipment', label: '发货清单', icon: TruckIcon },
     { to: '/label-print', label: '标签打印', icon: TagIcon },
     { to: '/image-converter', label: '图片转换', icon: PhotoIcon },
+    { to: '/image-renamer', label: '图片重命名', icon: PhotoIcon },
     { to: '/ai-tag-writer', label: 'AI 标记写入', icon: SparklesIcon },
   ],
   admin: [

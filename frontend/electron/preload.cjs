@@ -54,6 +54,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 选择图片文件
   selectImageFiles: () => ipcRenderer.invoke('select-image-files'),
 
+  // 批量转换：扫描大文件夹两级子目录
+  scanImageFolder: () => ipcRenderer.invoke('scan-image-folder'),
+  convertImagesInPlace: (options) => ipcRenderer.invoke('convert-images-in-place', options),
+
+  // 图片重命名
+  scanImageFolderForRename: () => ipcRenderer.invoke('scan-image-folder-for-rename'),
+  renameImages: (options) => ipcRenderer.invoke('rename-images', options),
+  readImageAsBase64: (filePath) => ipcRenderer.invoke('read-image-as-base64', filePath),
+
+  // 图片重命名
+  scanImagesForRename: () => ipcRenderer.invoke('scan-images-for-rename'),
+  renameImages: (options) => ipcRenderer.invoke('rename-images', options),
+
   // AI 标记写入
   selectImageFilesForTag: () => ipcRenderer.invoke('select-image-files-for-tag'),
   selectImageFolderForTag: () => ipcRenderer.invoke('select-image-folder-for-tag'),

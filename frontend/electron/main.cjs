@@ -16,6 +16,7 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false, // 允许加载本地 file:// 资源（图片预览用）
     },
     titleBarStyle: 'default',
     title: 'Amazon 商品抓取工具',
@@ -1187,12 +1188,12 @@ ipcMain.handle('select-image-files', async () => {
 // ========== IPC: 图片转换 PNG → JPG ==========
 ipcMain.handle('convert-images', async (event, options) => {
   const { createCanvas, loadImage } = require('canvas');
-  const files = options?.files || []; // 数组：文件绝对路径
+  const files = options?.files || [];
   const outputFolder = options?.outputFolder || '';
-  const namePrefix = options?.namePrefix || ''; // 用文件夹名作为前缀
+  const namePrefix = options?.namePrefix || '';
   const targetSize = options?.targetSize || 2000;
-  const targetKB = options?.targetKB || 800;
-  const maxKB = options?.maxKB || 1000;
+  const targetKB = options?.targetKB || 1000;
+  const maxKB = options?.maxKB || 1200;
 
   if (!outputFolder) return { success: false, error: '请先选择输出文件夹' };
   if (files.length === 0) return { success: false, error: '没有选择图片' };
@@ -1200,11 +1201,11 @@ ipcMain.handle('convert-images', async (event, options) => {
   const results = [];
   const targetBytes = targetKB * 1024;
   const maxBytes = maxKB * 1024;
+  const AI_KEYWORD = 'contains-synthetic-performer';
 
   for (let idx = 0; idx < files.length; idx++) {
     const filePath = files[idx];
     try {
-      // 用 buffer 方式加载，避免路径中文/空格问题
       const fileBuffer = fs.readFileSync(filePath);
       const img = await loadImage(fileBuffer);
       const canvas = createCanvas(targetSize, targetSize);
@@ -1224,10 +1225,7 @@ ipcMain.handle('convert-images', async (event, options) => {
 
       // 二分法找合适的 quality
       let lo = 0.1, hi = 0.98, bestBuffer = null;
-
-      const toJpegBuffer = (quality) => {
-        return canvas.toBuffer('image/jpeg', { quality });
-      };
+      const toJpegBuffer = (quality) => canvas.toBuffer('image/jpeg', { quality });
 
       let buffer = toJpegBuffer(hi);
       if (buffer.length <= targetBytes) {
@@ -1236,19 +1234,11 @@ ipcMain.handle('convert-images', async (event, options) => {
         for (let i = 0; i < 8; i++) {
           const mid = (lo + hi) / 2;
           buffer = toJpegBuffer(mid);
-          if (buffer.length > targetBytes) {
-            hi = mid;
-          } else {
-            lo = mid;
-            bestBuffer = buffer;
-          }
+          if (buffer.length > targetBytes) { hi = mid; }
+          else { lo = mid; bestBuffer = buffer; }
         }
-        if (!bestBuffer) {
-          bestBuffer = toJpegBuffer(lo);
-        }
-        if (bestBuffer.length > maxBytes) {
-          bestBuffer = toJpegBuffer(lo * 0.7);
-        }
+        if (!bestBuffer) bestBuffer = toJpegBuffer(lo);
+        if (bestBuffer.length > maxBytes) bestBuffer = toJpegBuffer(lo * 0.7);
       }
 
       // 输出文件名：前缀-序号.jpg
@@ -1256,13 +1246,27 @@ ipcMain.handle('convert-images', async (event, options) => {
         ? `${namePrefix}-${idx + 1}.jpg`
         : path.basename(filePath, path.extname(filePath)) + '.jpg';
       const outputPath = path.join(outputFolder, outputName);
-      fs.writeFileSync(outputPath, bestBuffer);
+
+      // 检测原文件名是否含 -P 标记（不区分大小写），含则写入 XMP AI 标记
+      const origBaseName = path.basename(filePath, path.extname(filePath));
+      const needsAiTag = /-p$/i.test(origBaseName) || origBaseName.toLowerCase().includes('-p-') || origBaseName.toLowerCase().includes('-p ');
+      let finalBuffer = bestBuffer;
+      if (needsAiTag) {
+        try {
+          finalBuffer = writeXmpToJpeg(bestBuffer, AI_KEYWORD);
+        } catch {
+          // 写入失败不影响图片保存
+        }
+      }
+
+      fs.writeFileSync(outputPath, finalBuffer);
 
       results.push({
         file: filePath,
         output: outputPath,
         outputName,
-        size: bestBuffer.length,
+        size: finalBuffer.length,
+        aiTagged: needsAiTag,
         success: true,
       });
     } catch (err) {
@@ -1271,6 +1275,254 @@ ipcMain.handle('convert-images', async (event, options) => {
   }
 
   return { success: true, results };
+});
+
+// ========== IPC: 读取图片为 base64（解决 CSP 限制本地文件访问）==========
+ipcMain.handle('read-image-as-base64', async (event, filePath) => {
+  try {
+    const buf = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const mime = ext === 'jpg' ? 'jpeg' : ext;
+    return `data:image/${mime};base64,` + buf.toString('base64');
+  } catch {
+    return null;
+  }
+});
+
+// ========== IPC: 扫描文件夹用于重命名 ==========
+ipcMain.handle('scan-image-folder-for-rename', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择图片文件夹',
+    properties: ['openDirectory'],
+  });
+  if (!filePaths || filePaths.length === 0) return null;
+
+  const rootFolder = filePaths[0];
+  const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif', '.gif']);
+
+  // 扫描两级目录
+  const allImages = [];
+
+  const scanFolder = (folder) => {
+    const entries = fs.readdirSync(folder, { withFileTypes: true });
+    const hasSubDirs = entries.some(e => e.isDirectory());
+    if (hasSubDirs) {
+      for (const e of entries) {
+        if (e.isDirectory()) scanFolder(path.join(folder, e.name));
+      }
+    } else {
+      for (const e of entries) {
+        if (!e.isDirectory() && imageExts.has(path.extname(e.name).toLowerCase())) {
+          allImages.push({
+            filePath: path.join(folder, e.name),
+            folder,
+            fileName: e.name,
+            baseName: path.basename(e.name, path.extname(e.name)),
+            ext: path.extname(e.name),
+          });
+        }
+      }
+    }
+  };
+
+  scanFolder(rootFolder);
+  return { rootFolder, images: allImages };
+});
+
+// ========== IPC: 批量重命名图片 ==========
+ipcMain.handle('rename-images', async (event, options) => {
+  const { renames } = options; // [{ filePath, newBaseName }]
+  const results = [];
+
+  for (const { filePath, newBaseName } of renames) {
+    try {
+      const ext = path.extname(filePath);
+      const newName = newBaseName.trim() + ext;
+      const newPath = path.join(path.dirname(filePath), newName);
+
+      if (newPath === filePath) {
+        results.push({ filePath, success: true, skipped: true });
+        continue;
+      }
+      if (fs.existsSync(newPath)) {
+        results.push({ filePath, success: false, error: `文件已存在：${newName}` });
+        continue;
+      }
+      fs.renameSync(filePath, newPath);
+      results.push({ filePath, newPath, newName, success: true });
+    } catch (err) {
+      results.push({ filePath, success: false, error: err.message });
+    }
+  }
+  return results;
+});
+
+// ========== IPC: 扫描大文件夹两级子目录中的 PNG 图片 ==========
+ipcMain.handle('scan-image-folder', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择图片根目录',
+    properties: ['openDirectory'],
+  });
+  if (!filePaths || filePaths.length === 0) return null;
+
+  const rootFolder = filePaths[0];
+  const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif']);
+
+  // 扫描两级目录，收集所有叶子文件夹里的图片
+  // 结构：rootFolder/一级/二级/图片  或  rootFolder/一级/图片
+  const subFolders = [];
+
+  const level1Entries = fs.readdirSync(rootFolder, { withFileTypes: true });
+  for (const l1 of level1Entries) {
+    if (!l1.isDirectory()) continue;
+    const l1Path = path.join(rootFolder, l1.name);
+
+    // 看 l1 下面有没有子目录
+    const l2Entries = fs.readdirSync(l1Path, { withFileTypes: true });
+    const l2Dirs = l2Entries.filter(e => e.isDirectory());
+
+    if (l2Dirs.length > 0) {
+      // 有二级目录，逐个扫描
+      for (const l2 of l2Dirs) {
+        const l2Path = path.join(l1Path, l2.name);
+        const images = fs.readdirSync(l2Path)
+          .filter(f => imageExts.has(path.extname(f).toLowerCase()))
+          .sort()
+          .map(f => path.join(l2Path, f));
+        if (images.length > 0) {
+          subFolders.push({ folder: l2Path, folderName: l2.name, images });
+        }
+      }
+    } else {
+      // 没有二级目录，l1 本身就是叶子
+      const images = l2Entries
+        .filter(e => !e.isDirectory() && imageExts.has(path.extname(e.name).toLowerCase()))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(e => path.join(l1Path, e.name));
+      if (images.length > 0) {
+        subFolders.push({ folder: l1Path, folderName: l1.name, images });
+      }
+    }
+  }
+
+  const totalImages = subFolders.reduce((s, f) => s + f.images.length, 0);
+  return { rootFolder, subFolders, totalImages };
+});
+
+// ========== IPC: 扫描文件夹两级子目录中的图片（重命名用） ==========
+ipcMain.handle('scan-images-for-rename', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择图片文件夹',
+    properties: ['openDirectory'],
+  });
+  if (!filePaths || filePaths.length === 0) return null;
+
+  const rootFolder = filePaths[0];
+  const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif']);
+
+  const allImages = [];
+
+  const scanFolder = (folderPath) => {
+    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
+    const hasSubs = entries.some(e => e.isDirectory());
+    if (hasSubs) {
+      for (const e of entries) {
+        if (e.isDirectory()) scanFolder(path.join(folderPath, e.name));
+      }
+    } else {
+      for (const e of entries) {
+        if (!e.isDirectory() && imageExts.has(path.extname(e.name).toLowerCase())) {
+          allImages.push(path.join(folderPath, e.name));
+        }
+      }
+    }
+  };
+
+  scanFolder(rootFolder);
+  allImages.sort();
+  return { rootFolder, images: allImages };
+});
+
+// ========== IPC: 批量就地转换（PNG→JPG，原文件名，输出到原文件夹，删除PNG） ==========
+ipcMain.handle('convert-images-in-place', async (event, options) => {
+  const { createCanvas, loadImage } = require('canvas');
+  const { subFolders } = options;
+  const targetSize = 2048;
+  const targetKB = 1000;
+  const maxKB = 1200;
+  const targetBytes = targetKB * 1024;
+  const maxBytes = maxKB * 1024;
+  const AI_KEYWORD = 'contains-synthetic-performer';
+
+  const results = []; // [{ folder, file, outputName, size, aiTagged, success, error }]
+
+  for (const { folder, images } of subFolders) {
+    for (const filePath of images) {
+      try {
+        const ext = path.extname(filePath).toLowerCase();
+        const baseName = path.basename(filePath, ext);
+        const leafFolderName = path.basename(folder);
+        const outputName = `${leafFolderName}-${baseName}.jpg`;
+        const outputPath = path.join(folder, outputName);
+
+        // 如果源文件本来就是 jpg 同名，避免覆盖自己（不太可能，但防御一下）
+        const isSameFile = outputPath.toLowerCase() === filePath.toLowerCase();
+
+        const fileBuffer = fs.readFileSync(filePath);
+        const img = await loadImage(fileBuffer);
+
+        const canvas = createCanvas(2000, 2000);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, 2000, 2000);
+        const scale = Math.min(2000 / img.width, 2000 / img.height);
+        ctx.drawImage(img, (2000 - img.width * scale) / 2, (2000 - img.height * scale) / 2, img.width * scale, img.height * scale);
+
+        // 二分法：找不超过 1000KB 的最高质量
+        let lo = 0.1, hi = 0.98, bestBuffer = null;
+        const toJpeg = q => canvas.toBuffer('image/jpeg', { quality: q });
+        let buf = toJpeg(hi);
+        if (buf.length <= targetBytes) {
+          bestBuffer = buf;
+        } else {
+          for (let i = 0; i < 8; i++) {
+            const mid = (lo + hi) / 2;
+            buf = toJpeg(mid);
+            if (buf.length > targetBytes) hi = mid;
+            else { lo = mid; bestBuffer = buf; }
+          }
+          if (!bestBuffer) bestBuffer = toJpeg(lo);
+          if (bestBuffer.length > maxBytes) bestBuffer = toJpeg(lo * 0.7);
+        }
+
+        // 检测原文件名是否含 -P 标记
+        const needsAiTag = /-p$/i.test(baseName) || /-p-/i.test(baseName);
+        let finalBuffer = bestBuffer;
+        let aiTagError = null;
+        if (needsAiTag) {
+          try {
+            finalBuffer = writeXmpToJpeg(bestBuffer, AI_KEYWORD);
+          } catch (e) {
+            aiTagError = e.message;
+          }
+        }
+
+        // 写入 JPG
+        fs.writeFileSync(outputPath, finalBuffer);
+
+        // 删除原 PNG（如果不是同名 jpg）
+        if (!isSameFile && ext !== '.jpg' && ext !== '.jpeg') {
+          fs.unlinkSync(filePath);
+        }
+
+        results.push({ folder, file: filePath, outputName, size: finalBuffer.length, aiTagged: needsAiTag && !aiTagError, aiTagError, success: true });
+      } catch (err) {
+        results.push({ folder, file: filePath, success: false, error: err.message });
+      }
+    }
+  }
+
+  return results;
 });
 
 // ========== IPC: 生成中文标签 PDF ==========
@@ -2445,8 +2697,13 @@ function writeXmpToJpeg(buf, keyword) {
   const subjects = parseExistingSubjects(existingXmp);
   if (subjects.includes(keyword)) return buf; // 已有标记，跳过
   const xmpStr = buildXmpPacket(keyword, subjects);
-  const xmpData = Buffer.from(XMP_MAGIC + xmpStr, 'binary');
-  const segLen = xmpData.length + 2;
+
+  // magic header 和 xmp 内容分开编码，避免混用 binary/utf8 导致内容损坏
+  const magicBuf = Buffer.from(XMP_MAGIC, 'binary');
+  const xmpBuf = Buffer.from(xmpStr, 'utf8');
+  const xmpData = Buffer.concat([magicBuf, xmpBuf]);
+
+  const segLen = xmpData.length + 2; // APP1 segment length 包含自身 2 字节
   const seg = Buffer.alloc(4 + xmpData.length);
   seg[0] = 0xFF; seg[1] = 0xE1;
   seg.writeUInt16BE(segLen, 2);
