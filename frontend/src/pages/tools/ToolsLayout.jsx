@@ -1,14 +1,18 @@
+import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import {
   Search, Type, FileText, AlignLeft,
   Package, Barcode, ScanLine,
   Image, MapPin, Receipt,
-  Sparkles, Wrench, DollarSign, GitCompare
+  Sparkles, Wrench, DollarSign, GitCompare, X
 } from 'lucide-react';
 import { I18nProvider, useI18n } from '../../i18n';
 import LangSwitch from './LangSwitch';
 import SeoHead from './SeoHead';
 import FeedbackWidget from './FeedbackWidget';
+
+const NOTICE_KEY = 'ai_notice_count';
+const MAX_SHOW = 5;
 
 const toolCategories = [
   {
@@ -45,10 +49,86 @@ function ToolsLayoutInner() {
   const location = useLocation();
   const { t } = useI18n();
 
+  // 弹窗：最多显示 5 次
+  const [showNotice, setShowNotice] = useState(false);
+  useEffect(() => {
+    const count = parseInt(localStorage.getItem(NOTICE_KEY) || '0', 10);
+    if (count < MAX_SHOW) {
+      setShowNotice(true);
+      localStorage.setItem(NOTICE_KEY, String(count + 1));
+    }
+  }, []);
+
+  const closeNotice = () => setShowNotice(false);
+
   return (
     <div className="flex min-h-screen bg-[#fafafa]">
       <SeoHead />
       <FeedbackWidget />
+
+      {/* 亚马逊新规公告弹窗 */}
+      {showNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+            {/* 顶部色带 */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-blue-500 via-violet-500 to-orange-400" />
+
+            {/* 关闭按钮 */}
+            <button
+              onClick={closeNotice}
+              className="absolute top-4 right-4 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="p-6 space-y-4">
+              {/* 标题 */}
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100">
+                  <Sparkles className="h-5 w-5 text-orange-500" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-600">新规</span>
+                    <span className="text-[11px] text-gray-400">2026年7月</span>
+                  </div>
+                  <h2 className="mt-1 text-base font-bold text-gray-900">亚马逊 AI 合成人像披露要求</h2>
+                </div>
+              </div>
+
+              {/* 内容 */}
+              <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-600 leading-relaxed space-y-2">
+                <p>亚马逊要求，含 AI 合成人物的商品图片，必须在上传前为图片写入以下 XMP 元数据标记：</p>
+                <code className="block rounded-lg bg-gray-900 px-3 py-2 text-xs font-mono text-green-400">
+                  contains-synthetic-performer
+                </code>
+                <p className="text-xs text-gray-500">否则商品可能被下架或受到处罚。</p>
+              </div>
+
+              {/* 公众号引导 */}
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                <p className="text-sm font-semibold text-blue-900 mb-1">🎁 免费领取桌面工具</p>
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  关注下方公众号，回复「AI标记」即可领取批量写入工具，支持整个文件夹一键处理。
+                </p>
+                {/* 二维码占位 */}
+                <div className="mt-3 flex justify-center">
+                  <div className="h-28 w-28 rounded-lg bg-white border border-blue-200 flex items-center justify-center text-xs text-gray-400">
+                    公众号二维码
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={closeNotice}
+                className="w-full rounded-xl bg-gray-900 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 transition-colors"
+              >
+                我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-gray-200/80 bg-white px-3 py-6">
         <div className="mb-6 px-3">
