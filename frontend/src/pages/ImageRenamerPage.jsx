@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FolderOpenIcon, CheckCircleIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { FolderOpenIcon, CheckCircleIcon, ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 // 直接用 file:// 协议加载本地图片（webSecurity: false 已允许）
@@ -66,6 +66,22 @@ export default function ImageRenamerPage() {
   };
 
   const handleClear = () => { setRootFolder(''); setGroups([]); setSummary(null); };
+
+  const handleClearAllNames = () => {
+    setGroups(prev => prev.map(g => ({
+      ...g,
+      images: g.images.map(img => ({ ...img, newBaseName: '' })),
+    })));
+  };
+
+  const handleClearFolderNames = (folder) => {
+    setGroups(prev => prev.map(g =>
+      g.folder !== folder ? g : {
+        ...g,
+        images: g.images.map(img => ({ ...img, newBaseName: '' })),
+      }
+    ));
+  };
 
   const handleNameChange = (folder, filePath, value) => {
     setGroups(prev => prev.map(g =>
@@ -179,6 +195,15 @@ export default function ImageRenamerPage() {
         {rootFolder && !processing && (
           <button onClick={handleClear} className="text-xs text-apple-gray-400 hover:text-red-500">清空</button>
         )}
+        {groups.length > 0 && !processing && (
+          <button
+            onClick={handleClearAllNames}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-apple-gray-200 bg-white px-3 py-2 text-xs font-medium text-apple-gray-600 hover:border-red-200 hover:text-red-500 transition-colors"
+          >
+            <XCircleIcon className="h-3.5 w-3.5" />
+            清空所有文件名
+          </button>
+        )}
         {changedCount > 0 && (
           <span className="text-xs text-apple-blue ml-auto">{changedCount} 张待重命名</span>
         )}
@@ -235,6 +260,15 @@ export default function ImageRenamerPage() {
               {g.folderStatus === 'done' && (
                 <CheckCircleIcon className="h-4 w-4 text-green-500 flex-shrink-0" />
               )}
+              {!processing && g.folderStatus !== 'done' && (
+                <button
+                  onClick={() => handleClearFolderNames(g.folder)}
+                  className="ml-1 rounded-md p-1 text-apple-gray-300 hover:text-red-400 transition-colors"
+                  title="清空此文件夹所有文件名"
+                >
+                  <XCircleIcon className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -263,18 +297,28 @@ export default function ImageRenamerPage() {
 
                 {/* 新文件名输入框 */}
                 <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={img.newBaseName}
-                    onChange={e => handleNameChange(g.folder, img.filePath, e.target.value)}
-                    disabled={processing || img.status === 'done'}
-                    placeholder="新文件名"
-                    className={`flex-1 min-w-0 rounded-lg border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-apple-blue/20 disabled:opacity-50 ${
-                      img.newBaseName.trim() && img.newBaseName.trim() !== img.baseName
-                        ? 'border-apple-blue bg-white text-apple-gray-900'
-                        : 'border-apple-gray-200 bg-apple-gray-50 text-apple-gray-600'
-                    }`}
-                  />
+                  <div className="relative flex-1 min-w-0">
+                    <input
+                      type="text"
+                      value={img.newBaseName}
+                      onChange={e => handleNameChange(g.folder, img.filePath, e.target.value)}
+                      disabled={processing || img.status === 'done'}
+                      placeholder="新文件名"
+                      className={`w-full rounded-lg border px-2 py-1 pr-6 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-apple-blue/20 disabled:opacity-50 ${
+                        img.newBaseName.trim() && img.newBaseName.trim() !== img.baseName
+                          ? 'border-apple-blue bg-white text-apple-gray-900'
+                          : 'border-apple-gray-200 bg-apple-gray-50 text-apple-gray-600'
+                      }`}
+                    />
+                    {img.newBaseName && !(processing || img.status === 'done') && (
+                      <button
+                        onClick={() => handleNameChange(g.folder, img.filePath, '')}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-apple-gray-300 hover:text-apple-gray-500"
+                      >
+                        <XCircleIcon className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                   <span className="text-[10px] text-apple-gray-400 flex-shrink-0">{img.ext}</span>
                 </div>
 
