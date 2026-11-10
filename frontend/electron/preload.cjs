@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 用系统默认程序打开文件
   openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
+  openLabelFile: (options) => ipcRenderer.invoke('open-label-file', options),
 
   // 图片转换（PNG → JPG）
   convertImages: (options) => ipcRenderer.invoke('convert-images', options),

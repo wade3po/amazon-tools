@@ -551,22 +551,9 @@ async function printChineseLabel(product) {
 // ── 打开标签 PDF（根据 SKU+品名 在店铺标签文件夹中查找）──
 async function openLabelPdf(product, labelFolder) {
   if (!labelFolder) { alert('请先配置标签文件夹路径'); return; }
-  if (!window.electronAPI?.openFile) { alert('此功能仅在桌面端可用'); return; }
-
-  // 拆分文件命名规则：SKU-品名.pdf
-  const sku = product.sku || '';
-  const name = product.name || '';
-  let fileName = sku;
-  if (name) fileName += '-' + name;
-  fileName = fileName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-  if (fileName.length > 80) fileName = fileName.substring(0, 80).trim();
-  fileName += '.pdf';
-
-  const filePath = labelFolder.replace(/[/\\]$/, '') + '\\' + fileName;
-  const result = await window.electronAPI.openFile(filePath);
-  if (result && !result.success) {
-    alert(`文件未找到：\n${filePath}`);
-  }
+  if (!window.electronAPI?.openLabelFile) { alert('此功能仅在桌面端可用'); return; }
+  const result = await window.electronAPI.openLabelFile({ folder: labelFolder, sku: product.sku || '', name: product.name || '' });
+  if (!result.success) alert(`无法打开标签：${result.error}`);
 }
 
 // ── 自然排序：JAO-1, JAO-2, ..., JAO-10, JAO-11, ..., JAO-014 (视为 JAO-14) ──

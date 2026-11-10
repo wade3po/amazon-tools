@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { labelFileName, findLabelFile } = require('./label-filenames.cjs');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -515,15 +516,7 @@ ipcMain.handle('split-pdf-labels', async (event, options) => {
           const sku = typeof mapVal === 'object' ? (mapVal.sku || '') : String(mapVal);
           const name = typeof mapVal === 'object' ? (mapVal.name || '') : '';
 
-          // 构建文件名：SKU-品名.pdf
-          let fileName = sku;
-          if (name) fileName += '-' + name;
-          fileName = fileName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-          if (!fileName) fileName = label.fnsku;
-          if (fileName.length > 80) {
-            fileName = fileName.substring(0, 80).trim();
-          }
-          fileName += '.pdf';
+          const fileName = labelFileName(sku || label.fnsku, name);
 
           const outputPath = path.join(outputFolder, fileName);
 
@@ -636,7 +629,7 @@ ipcMain.handle('write-excel-links', async (event, options) => {
       // ── 普通标签列（标签列左边）──
       const existingVal = String(row[fileNameColIdx] || '').trim();
       if (!existingVal) {
-        const matchedFile = existingFiles.find((f) => f.startsWith(sku) && !f.includes('-中文标签'));
+        const matchedFile = findLabelFile(existingFiles, sku, name).file;
         if (matchedFile) {
           writes.push({ cellRef: XLSX.utils.encode_cell({ r: i, c: fileNameColIdx }), value: matchedFile });
         }
@@ -646,14 +639,7 @@ ipcMain.handle('write-excel-links', async (event, options) => {
       if (chineseFileNameColIdx >= 0) {
         const existingChineseVal = String(row[chineseFileNameColIdx] || '').trim();
         if (!existingChineseVal) {
-          // 中文标签 PDF 文件名格式：SKU编码-品名-中文标签.pdf（"中文标签"是固定后缀）
-          const cParts = [sku];
-          if (name) cParts.push(name);
-          cParts.push('中文标签');
-          let chineseFileBase = cParts.join('-').replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-          if (chineseFileBase.length > 100) chineseFileBase = chineseFileBase.substring(0, 100).trim();
-          const fullChineseFileName = chineseFileBase + '.pdf';
-          const matchedChinese = existingFiles.find((f) => f === fullChineseFileName);
+          const matchedChinese = findLabelFile(existingFiles, sku, name, true).file;
           if (matchedChinese) {
             writes.push({ cellRef: XLSX.utils.encode_cell({ r: i, c: chineseFileNameColIdx }), value: matchedChinese });
           }
@@ -983,32 +969,6 @@ ipcMain.handle('batch-merge-labels', async (event, options) => {
     return { success: false, error: '无法读取标签文件夹：' + err.message };
   }
 
-  // 根据 SKU 前缀模糊匹配文件
-  function findLabelFile(sku, name, suffix) {
-    // 1. 先用精确文件名尝试
-    let baseFileName = sku || '';
-    if (name) baseFileName += '-' + name;
-    baseFileName = baseFileName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-    if (baseFileName.length > 80) baseFileName = baseFileName.substring(0, 80).trim();
-    const exactName = suffix ? baseFileName + suffix + '.pdf' : baseFileName + '.pdf';
-    if (allFiles.includes(exactName)) return exactName;
-
-    // 2. 用 SKU 开头 + 包含后缀进行模糊匹配
-    const skuPrefix = sku + '-';
-    const candidates = allFiles.filter(f => f.startsWith(skuPrefix));
-
-    if (suffix) {
-      // 中文标签：以 SKU 开头，且文件名包含后缀关键字（如"-中文标签"）
-      const match = candidates.find(f => f.includes(suffix));
-      if (match) return match;
-    } else {
-      // 英文标签：以 SKU 开头，且文件名不包含"中文标签"
-      const match = candidates.find(f => !f.includes('-中文标签'));
-      if (match) return match;
-    }
-
-    return null;
-  }
 
   const errors = [];
   const mergedDoc = await PDFDocument.create();
@@ -1019,26 +979,18 @@ ipcMain.handle('batch-merge-labels', async (event, options) => {
     const { sku, name, purchaseQty } = product;
     if (!purchaseQty || purchaseQty <= 0) continue;
 
-    // 查找中文标签文件
-    const chineseFile = findLabelFile(sku, name, '-中文标签');
-    if (!chineseFile) {
-      // 构建期望的文件名用于报错
-      let expected = sku;
-      if (name) expected += '-' + name;
-      expected = expected.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-      errors.push(`${sku}: 中文标签文件不存在 (${expected}-中文标签.pdf)`);
+    const chineseResult = findLabelFile(allFiles, sku, name, true);
+    if (!chineseResult.file) {
+      errors.push(`${sku}: 中文${chineseResult.error} (${labelFileName(sku, name, true)})`);
       continue;
     }
-
-    // 查找英文标签文件
-    const englishFile = findLabelFile(sku, name, '');
-    if (!englishFile) {
-      let expected = sku;
-      if (name) expected += '-' + name;
-      expected = expected.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-      errors.push(`${sku}: 英文标签文件不存在 (${expected}.pdf)`);
+    const englishResult = findLabelFile(allFiles, sku, name);
+    if (!englishResult.file) {
+      errors.push(`${sku}: 英文${englishResult.error} (${labelFileName(sku, name)})`);
       continue;
     }
+    const chineseFile = chineseResult.file;
+    const englishFile = englishResult.file;
 
     try {
       // 读取中文标签 PDF
@@ -1164,6 +1116,17 @@ ipcMain.handle('open-file', async (event, filePath) => {
     return { success: true };
   }
   return { success: false, error: '文件不存在' };
+});
+
+ipcMain.handle('open-label-file', async (event, { folder, sku, name }) => {
+  try {
+    const result = findLabelFile(fs.readdirSync(folder), sku, name);
+    if (!result.file) return { success: false, error: result.error };
+    const error = await require('electron').shell.openPath(path.join(folder, result.file));
+    return error ? { success: false, error } : { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 // ========== IPC: 选择图片文件 ==========
@@ -1618,11 +1581,7 @@ ipcMain.handle('generate-chinese-label-pdf', async (event, options) => {
     const name        = typeof mapVal === 'object' ? (mapVal.name        || '') : '';
     const packageType = typeof mapVal === 'object' ? (mapVal.packageType || '') : '';
 
-    const parts = [sku];
-    if (name) parts.push(name);
-    parts.push('中文标签');
-    let fileBase = parts.join('-').replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-    if (fileBase.length > 100) fileBase = fileBase.substring(0, 100).trim();
+    const fileBase = labelFileName(sku, name, true).slice(0, -4);
 
     if (seen.has(fileBase)) continue;
     seen.add(fileBase);
