@@ -1957,8 +1957,10 @@ function findChromiumExecutable(browsersPath) {
     const entries = fs.readdirSync(browsersPath);
     for (const entry of entries) {
       if (entry.startsWith('chromium')) {
-        const chromePath = path.join(browsersPath, entry, 'chrome-win', 'chrome.exe');
-        if (fs.existsSync(chromePath)) return chromePath;
+        for (const directory of ['chrome-win64', 'chrome-win']) {
+          const chromePath = path.join(browsersPath, entry, directory, 'chrome.exe');
+          if (fs.existsSync(chromePath)) return chromePath;
+        }
       }
     }
   } catch (e) {}
