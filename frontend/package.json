@@ -71,14 +71,6 @@
       "node_modules/pdfjs-dist/**/*"
     ],
     "npmRebuild": false,
-    "extraResources": [
-      {
-        "from": "node_modules/playwright/.local-browsers",
-        "to": "playwright-browsers",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ]
+    "extraResources": []
   }
 }

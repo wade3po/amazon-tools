@@ -68,14 +68,9 @@ ipcMain.handle('scrape-products', async (event, urls) => {
   let browser;
 
   try {
-    // 查找浏览器路径（打包后从 extraResources 读取）
-    const browserPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'playwright-browsers')
-      : undefined;
-
     browser = await chromium.launch({
       headless: true,
-      executablePath: browserPath ? findChromiumExecutable(browserPath) : undefined,
+      executablePath: findSystemBrowser(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -1951,19 +1946,21 @@ async function scrapeAmazonProduct(browser, url) {
   }
 }
 
-function findChromiumExecutable(browsersPath) {
-  // 在打包后的资源目录中查找 chromium 可执行文件
-  try {
-    const entries = fs.readdirSync(browsersPath);
-    for (const entry of entries) {
-      if (entry.startsWith('chromium')) {
-        for (const directory of ['chrome-win64', 'chrome-win']) {
-          const chromePath = path.join(browsersPath, entry, directory, 'chrome.exe');
-          if (fs.existsSync(chromePath)) return chromePath;
-        }
-      }
-    }
-  } catch (e) {}
+function findSystemBrowser() {
+  // 按优先级查找系统已安装的 Chrome / Edge
+  const candidates = [
+    // Chrome (常见安装路径)
+    path.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(process.env['LOCALAPPDATA'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    // Edge (Windows 10/11 内置)
+    path.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Microsoft\\Edge\\Application\\msedge.exe'),
+    path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Microsoft\\Edge\\Application\\msedge.exe'),
+  ];
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+  // 找不到时返回 undefined，Playwright 会报错提示用户安装浏览器
   return undefined;
 }
 
